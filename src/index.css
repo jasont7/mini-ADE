@@ -588,20 +588,14 @@
     clip-path: inset(-8px -8px 0 -8px);
   }
 
+  /* No content-visibility. It skipped rendering off-screen messages and stood
+     in a 96-240px placeholder for each; as you scrolled, real heights replaced
+     the estimates and scrollHeight moved under the viewport. Chrome absorbs
+     that with scroll anchoring, Safari has none, so the transcript jumped on
+     every swipe. Every message is fetched up front now, so rendering them all
+     for real costs one pass at open and keeps the geometry stable after. */
   .chat-message {
-    contain: layout style paint;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 180px;
-  }
-
-  .chat-message.assistant {
-    contain-intrinsic-size: auto 240px;
-  }
-
-  .chat-message.user,
-  .chat-message.tool,
-  .chat-message.error {
-    contain-intrinsic-size: auto 96px;
+    contain: layout style;
   }
 
   /* Mobile touch optimization and safe areas */

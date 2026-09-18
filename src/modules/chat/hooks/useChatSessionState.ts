@@ -679,8 +679,11 @@ export function useChatSessionState({
 
     // Fetch from server → store updates → chatMessages re-derives automatically
     setIsLoadingSessionMessages(true);
+    // The whole transcript, in one request. Paging it in meant the reader had to
+    // ask for older messages and wait, and every prepend risked moving the
+    // viewport; with nothing prepended after open, the position cannot shift.
     sessionStore.fetchFromServer(selectedSessionId, {
-      limit: SESSION_MESSAGES_PAGE_SIZE,
+      limit: null,
       offset: 0,
       canRequest: () => (
         isActiveRef.current
