@@ -85,33 +85,35 @@ export default function SidebarProjectSessions({
 
   const hasSessions = sessions.length > 0;
 
+  // The New session button sits below the list, in a lighter blue than the
+  // primary action colour.
+  const newSessionButton = isCompact ? (
+    <div className="px-3 pb-1 pt-1">
+      <button
+        className="flex h-8 w-full items-center justify-center gap-2 rounded-md bg-blue-200 text-xs font-medium text-blue-900 transition-all duration-150 hover:bg-blue-100 active:scale-[0.98]"
+        onClick={() => {
+          onProjectSelect(project);
+          onNewSession(project);
+        }}
+      >
+        <Plus className="h-3 w-3" />
+        {t('sessions.newSession')}
+      </button>
+    </div>
+  ) : (
+    <Button
+      variant="default"
+      size="sm"
+      className="flex h-8 w-full justify-start gap-2 bg-blue-200 text-xs font-medium text-blue-900 transition-colors hover:bg-blue-100"
+      onClick={() => onNewSession(project)}
+    >
+      <Plus className="h-3 w-3" />
+      {t('sessions.newSession')}
+    </Button>
+  );
+
   return (
     <div className="ml-3 space-y-1 border-l border-border pl-3">
-      {isCompact ? (
-        <div className="px-3 pb-1 pt-1">
-          <button
-            className="flex h-8 w-full items-center justify-center gap-2 rounded-md bg-primary text-xs font-medium text-primary-foreground transition-all duration-150 hover:bg-primary/90 active:scale-[0.98]"
-            onClick={() => {
-              onProjectSelect(project);
-              onNewSession(project);
-            }}
-          >
-            <Plus className="h-3 w-3" />
-            {t('sessions.newSession')}
-          </button>
-        </div>
-      ) : (
-        <Button
-          variant="default"
-          size="sm"
-          className="flex h-8 w-full justify-start gap-2 bg-primary text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          onClick={() => onNewSession(project)}
-        >
-          <Plus className="h-3 w-3" />
-          {t('sessions.newSession')}
-        </Button>
-      )}
-
       {!initialSessionsLoaded ? (
         <SessionListSkeleton />
       ) : !hasSessions ? (
@@ -156,6 +158,7 @@ export default function SidebarProjectSessions({
           )}
         </>
       )}
+      {newSessionButton}
     </div>
   );
 }

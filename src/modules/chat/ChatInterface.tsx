@@ -141,7 +141,6 @@ function ChatInterface({
     setIsUserScrolledUp,
     tokenBudget,
     setTokenBudget,
-    visibleMessageCount,
     visibleMessages,
     loadEarlierMessages,
     loadAllMessages,
@@ -456,7 +455,6 @@ function ChatInterface({
             hasMoreMessages={hasMoreMessages}
             totalMessages={totalMessages}
             sessionMessagesCount={chatMessages.length}
-            visibleMessageCount={visibleMessageCount}
             visibleMessages={visibleMessages}
             loadEarlierMessages={loadEarlierMessages}
             loadAllMessages={loadAllMessages}

@@ -505,9 +505,11 @@ export function useSidebarController({
         return;
       }
 
+      // Expanding one project used to collapse every other: the next set was
+       // built empty rather than from the current one.
       setExpandedProjects((prev) => {
-        const next = new Set<string>();
-        if (!prev.has(projectId)) {
+        const next = new Set<string>(prev);
+        if (!next.delete(projectId)) {
           next.add(projectId);
         }
         return next;

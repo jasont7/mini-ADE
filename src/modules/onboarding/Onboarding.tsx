@@ -13,8 +13,13 @@ const gitEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const readErrorMessageFromResponse = async (response: Response, fallback: string) => {
   try {
-    const payload = (await response.json()) as { error?: string };
-    return payload.error || fallback;
+    const payload = (await response.json()) as { error?: unknown };
+    const value = payload.error;
+    if (value && typeof value === 'object') {
+      const asRecord = value as { message?: unknown; code?: unknown };
+      return String(asRecord.message ?? asRecord.code ?? fallback);
+    }
+    return (value as string) || fallback;
   } catch {
     return fallback;
   }

@@ -53,7 +53,6 @@ type ChatMessagesPaneProps = {
   hasMoreMessages: boolean;
   totalMessages: number;
   sessionMessagesCount: number;
-  visibleMessageCount: number;
   visibleMessages: ChatMessage[];
   loadEarlierMessages: () => void;
   loadAllMessages: () => void;
@@ -107,7 +106,6 @@ function ChatMessagesPane({
   hasMoreMessages,
   totalMessages,
   sessionMessagesCount,
-  visibleMessageCount,
   visibleMessages,
   loadEarlierMessages,
   loadAllMessages,
@@ -225,13 +223,20 @@ function ChatMessagesPane({
             </div>
           )}
 
-          {/* Indicator showing there are more messages to load (hide when all loaded) */}
+          {/* Older messages load on request. Scrolling used to trigger it, which
+              paged through an entire transcript whenever the list was shorter
+              than the screen. */}
           {hasMoreMessages && !isLoadingMoreMessages && !allMessagesLoaded && (
             <div className="border-b border-gray-200 py-2 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+              <button
+                className="text-blue-600 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                onClick={loadEarlierMessages}
+              >
+                {t('session.messages.loadEarlier')}
+              </button>
               {totalMessages > 0 && (
-                <span>
-                  {t('session.messages.showingOf', { shown: sessionMessagesCount, total: totalMessages })}{' '}
-                  <span className="text-xs">{t('session.messages.scrollToLoad')}</span>
+                <span className="ml-2 text-xs">
+                  {t('session.messages.showingOf', { shown: sessionMessagesCount, total: totalMessages })}
                 </span>
               )}
             </div>
@@ -245,22 +250,6 @@ function ChatMessagesPane({
             onLoadAllMessages={loadAllMessages}
           />
 
-          {/* Legacy message count indicator (for non-paginated view) */}
-          {!hasMoreMessages && chatMessages.length > visibleMessageCount && (
-            <div className="border-b border-gray-200 py-2 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-              {t('session.messages.showingLast', { count: visibleMessageCount, total: chatMessages.length })} |
-              <button className="ml-1 text-blue-600 underline hover:text-blue-700" onClick={loadEarlierMessages}>
-                {t('session.messages.loadEarlier')}
-              </button>
-              {' | '}
-              <button
-                className="text-blue-600 underline hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
-                onClick={loadAllMessages}
-              >
-                {t('session.messages.loadAll')}
-              </button>
-            </div>
-          )}
 
           {(() => {
             let prevMessage: ChatMessage | null = null;

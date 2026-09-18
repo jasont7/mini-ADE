@@ -80,7 +80,15 @@ function resolveApiErrorMessage(payload: ApiErrorPayload | null, fallback: strin
     return fallback;
   }
 
-  return payload.error ?? payload.message ?? fallback;
+  const value = payload.error ?? payload.message ?? fallback;
+  // The server sometimes answers with error as { code, message }. Rendering an
+  // object throws React #31, which blanks the entire app instead of showing a
+  // login error.
+  if (value && typeof value === 'object') {
+    const asRecord = value as { message?: unknown; code?: unknown };
+    return String(asRecord.message ?? asRecord.code ?? fallback);
+  }
+  return value;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);

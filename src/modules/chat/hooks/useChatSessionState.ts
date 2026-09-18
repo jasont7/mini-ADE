@@ -12,7 +12,6 @@ import { findSearchTargetIndex, resolveSearchWindowSize } from '@/modules/chat/u
 import { readSelectedProvider } from '@/shared/selectedProvider';
 import type { SearchTarget } from '@/modules/chat/utils/searchTargetLocator';
 
-const INITIAL_VISIBLE_MESSAGES = 100;
 
 /** Messages kept below a search hit so it lands mid-viewport rather than at the edge. */
 const SEARCH_TARGET_CONTEXT_MESSAGES = 20;
@@ -96,29 +95,6 @@ type UseChatSessionStateArgs = {
   sessionStore: SessionStore;
 };
 
-type ScrollRestoreState = {
-  height: number;
-  top: number;
-  anchor: HTMLElement | null;
-  anchorOffset: number | null;
-};
-
-function captureScrollRestoreState(container: HTMLDivElement): ScrollRestoreState {
-  const containerBounds = container.getBoundingClientRect();
-  const anchor = Array.from(container.querySelectorAll<HTMLElement>('.chat-message'))
-    .find((element) => element.getBoundingClientRect().bottom >= containerBounds.top)
-    ?? null;
-
-  return {
-    height: container.scrollHeight,
-    top: container.scrollTop,
-    anchor,
-    anchorOffset: anchor
-      ? anchor.getBoundingClientRect().top - containerBounds.top
-      : null,
-  };
-}
-
 /* ------------------------------------------------------------------ */
 /*  Helper: Convert a ChatMessage to a NormalizedMessage for the store */
 /* ------------------------------------------------------------------ */
@@ -200,7 +176,6 @@ export function useChatSessionState({
   const [totalMessages, setTotalMessages] = useState(0);
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [tokenBudget, setTokenBudget] = useState<Record<string, unknown> | null>(null);
-  const [visibleMessageCount, setVisibleMessageCount] = useState(INITIAL_VISIBLE_MESSAGES);
   const [allMessagesLoaded, setAllMessagesLoaded] = useState(false);
   const [isLoadingAllMessages, setIsLoadingAllMessages] = useState(false);
   const [loadAllJustFinished, setLoadAllJustFinished] = useState(false);
@@ -227,8 +202,11 @@ export function useChatSessionState({
   const isUserScrolledUpRef = useRef(false);
   const isLoadingMoreRef = useRef(false);
   const allMessagesLoadedRef = useRef(false);
-  const topLoadLockRef = useRef(false);
-  const pendingScrollRestoreRef = useRef<ScrollRestoreState | null>(null);
+  // Height of the transcript just before older messages are prepended; the
+  // layout effect adds that growth to scrollTop so the message you were
+  // reading stays put. Replaces an anchor snapshot that restored an absolute
+  // position and discarded whatever you scrolled during the fetch.
+  const pendingGrowthRef = useRef<number | null>(null);
   const pendingInitialScrollRef = useRef(true);
   const messagesOffsetRef = useRef(0);
   const scrollPositionRef = useRef({ height: 0, top: 0 });
@@ -278,7 +256,6 @@ export function useChatSessionState({
     setTotalMessages(0);
     
     setTokenBudget(null);
-    setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
     setAllMessagesLoaded(false);
     allMessagesLoadedRef.current = false;
     setIsLoadingAllMessages(false);
@@ -287,8 +264,7 @@ export function useChatSessionState({
     setSearchTarget(null);
     wasNearTopRef.current = false;
     searchScrollActiveRef.current = false;
-    topLoadLockRef.current = false;
-    pendingScrollRestoreRef.current = null;
+    pendingGrowthRef.current = null;
     pendingInitialScrollRef.current = true;
     lastLoadedSessionKeyRef.current = null;
 
@@ -445,7 +421,6 @@ export function useChatSessionState({
   const scrollToBottomAndReset = useCallback(() => {
     scrollToBottom();
     if (allMessagesLoaded) {
-      setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
       setAllMessagesLoaded(false);
       allMessagesLoadedRef.current = false;
     }
@@ -467,7 +442,7 @@ export function useChatSessionState({
 
       isLoadingMoreRef.current = true;
       setIsLoadingMoreMessages(true);
-      const scrollRestoreState = captureScrollRestoreState(container);
+      const heightBeforeLoad = container.scrollHeight;
 
       try {
         const result = await sessionStore.fetchMore(selectedSession.id, {
@@ -498,8 +473,7 @@ export function useChatSessionState({
           return false;
         }
 
-        pendingScrollRestoreRef.current = scrollRestoreState;
-        setVisibleMessageCount((prev) => prev + SESSION_MESSAGES_PAGE_SIZE);
+        pendingGrowthRef.current = heightBeforeLoad;
         if (!slot.hasMore) {
           allMessagesLoadedRef.current = true;
           setAllMessagesLoaded(true);
@@ -548,16 +522,10 @@ export function useChatSessionState({
       wasNearTopRef.current = false;
     }
 
-    if (!allMessagesLoadedRef.current) {
-      if (!scrolledNearTop) { topLoadLockRef.current = false; return; }
-      if (topLoadLockRef.current) {
-        if (container.scrollTop > 20) topLoadLockRef.current = false;
-        return;
-      }
-      const didLoad = await loadOlderMessages(container);
-      if (didLoad) topLoadLockRef.current = true;
-    }
-  }, [hasMoreMessages, isActive, isNearBottom, loadOlderMessages]);
+    // Older messages load only when asked for, via the button in the pane.
+    // Loading them here meant a transcript shorter than the screen sat at
+    // scrollTop 0 and paged itself through the entire history on open.
+  }, [hasMoreMessages, isActive, isNearBottom]);
 
   const wasChatActiveRef = useRef(isActive);
   useLayoutEffect(() => {
@@ -566,18 +534,10 @@ export function useChatSessionState({
     if (!isActive || !scrollContainerRef.current) return;
 
     const container = scrollContainerRef.current;
-    if (pendingScrollRestoreRef.current) {
-      const { height, top, anchor, anchorOffset } = pendingScrollRestoreRef.current;
-      if (anchor?.isConnected && anchorOffset !== null) {
-        const nextAnchorOffset = (
-          anchor.getBoundingClientRect().top
-          - container.getBoundingClientRect().top
-        );
-        container.scrollTop += nextAnchorOffset - anchorOffset;
-      } else {
-        container.scrollTop = top + Math.max(container.scrollHeight - height, 0);
-      }
-      pendingScrollRestoreRef.current = null;
+    if (pendingGrowthRef.current !== null) {
+      const growth = container.scrollHeight - pendingGrowthRef.current;
+      pendingGrowthRef.current = null;
+      if (growth > 0) container.scrollTop += growth;
       return;
     }
 
@@ -608,56 +568,23 @@ export function useChatSessionState({
     setSearchTarget(null);
 
     pendingInitialScrollRef.current = true;
-    setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
-    topLoadLockRef.current = false;
-    pendingScrollRestoreRef.current = null;
+    pendingGrowthRef.current = null;
     wasNearTopRef.current = false;
     setIsUserScrolledUp(false);
   }, [selectedProject?.projectId, selectedSession?.id]);
 
-  // Initial scroll to bottom — robust to lazy content reflow.
-  // The previous implementation fired one scrollToBottom() at +200ms and
-  // cleared the pending flag. When markdown blocks, code highlighting, or
-  // images finished rendering after that window, scrollHeight grew but
-  // nothing re-anchored the viewport, leaving the chat tab visually
-  // "scrolled way up" with the latest assistant message off-screen.
-  //
-  // This version re-scrolls every animation frame while scrollHeight is
-  // still growing, capped at ~1s (60 frames) or 3 consecutive stable
-  // frames. Cancels cleanly on session change via the pending flag.
+  // Initial scroll to bottom, once. content-visibility leaves off-screen
+  // messages unrendered, so chasing reflow across 60 frames only burned
+  // main-thread time — seconds of it on a phone.
   useEffect(() => {
     if (!isActive) return;
     if (!pendingInitialScrollRef.current || !scrollContainerRef.current || isLoadingSessionMessages) return;
     if (chatMessages.length === 0) { pendingInitialScrollRef.current = false; return; }
     if (searchScrollActiveRef.current) { pendingInitialScrollRef.current = false; return; }
-
+    pendingInitialScrollRef.current = false;
     const container = scrollContainerRef.current;
-    let frame = 0;
-    let lastHeight = 0;
-    let stableCount = 0;
-    let rafId = 0;
-
-    const tick = () => {
-      if (!pendingInitialScrollRef.current || !scrollContainerRef.current) return;
-      container.scrollTop = container.scrollHeight;
-      if (container.scrollHeight === lastHeight) {
-        stableCount++;
-      } else {
-        stableCount = 0;
-        lastHeight = container.scrollHeight;
-      }
-      frame++;
-      if (stableCount < 3 && frame < 60) {
-        rafId = requestAnimationFrame(tick);
-      } else {
-        pendingInitialScrollRef.current = false;
-      }
-    };
-    rafId = requestAnimationFrame(tick);
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-    };
-  }, [chatMessages.length, isActive, isLoadingSessionMessages, scrollToBottom]);
+    requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
+  }, [chatMessages.length, isActive, isLoadingSessionMessages]);
 
   // Session replay/subscription remains active regardless of which main tab is
   // visible. Only persisted-history HTTP traffic is visibility-gated below.
@@ -733,7 +660,6 @@ export function useChatSessionState({
     messagesOffsetRef.current = 0;
     setHasMoreMessages(false);
     setTotalMessages(0);
-    setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
     setAllMessagesLoaded(false);
     allMessagesLoadedRef.current = false;
     setIsLoadingAllMessages(false);
@@ -902,7 +828,6 @@ export function useChatSessionState({
         targetIndex,
         SEARCH_TARGET_CONTEXT_MESSAGES,
       );
-      setVisibleMessageCount((previous) => Math.max(previous, requiredVisibleCount));
 
       const targetTimestamp = messagesForSearch[targetIndex].timestamp;
 
@@ -973,10 +898,8 @@ export function useChatSessionState({
     fetchInitialTokenUsage();
   }, [selectedSession?.id]);
 
-  const visibleMessages = useMemo(() => {
-    if (chatMessages.length <= visibleMessageCount) return chatMessages;
-    return chatMessages.slice(-visibleMessageCount);
-  }, [chatMessages, visibleMessageCount]);
+  // Everything fetched is rendered; paging lives at the fetch layer alone.
+  const visibleMessages = chatMessages;
 
   useEffect(() => {
     if (!isActive) return;
@@ -988,7 +911,7 @@ export function useChatSessionState({
   useEffect(() => {
     if (!isActive) return;
     if (!scrollContainerRef.current || chatMessages.length === 0) return;
-    if (isLoadingMoreRef.current || isLoadingMoreMessages || pendingScrollRestoreRef.current) return;
+    if (isLoadingMoreRef.current || isLoadingMoreMessages || pendingGrowthRef.current !== null) return;
     if (searchScrollActiveRef.current) return;
 
     if (!isUserScrolledUp) {
@@ -1025,7 +948,7 @@ export function useChatSessionState({
     }
 
     const container = scrollContainerRef.current;
-    const scrollRestoreState = container ? captureScrollRestoreState(container) : null;
+    const heightBeforeLoadAll = container ? container.scrollHeight : null;
 
     try {
       const slot = await sessionStore.fetchFromServer(requestSessionId, {
@@ -1040,14 +963,13 @@ export function useChatSessionState({
       if (currentSessionId !== requestSessionId) return;
 
       if (slot) {
-        if (scrollRestoreState) {
-          pendingScrollRestoreRef.current = scrollRestoreState;
+        if (heightBeforeLoadAll !== null) {
+          pendingGrowthRef.current = heightBeforeLoadAll;
         }
 
         setHasMoreMessages(false);
         setTotalMessages(slot.total);
         messagesOffsetRef.current = slot.offset;
-        setVisibleMessageCount(Infinity);
         setAllMessagesLoaded(true);
 
         setLoadAllJustFinished(true);
@@ -1095,8 +1017,9 @@ export function useChatSessionState({
   }, [sessionStore]);
 
   const loadEarlierMessages = useCallback(() => {
-    setVisibleMessageCount((prev) => prev + 100);
-  }, []);
+    const container = scrollContainerRef.current;
+    if (container) void loadOlderMessages(container);
+  }, [loadOlderMessages]);
 
   return {
     chatMessages,
@@ -1114,7 +1037,6 @@ export function useChatSessionState({
     setIsUserScrolledUp,
     tokenBudget,
     setTokenBudget,
-    visibleMessageCount,
     visibleMessages,
     loadEarlierMessages,
     loadAllMessages,
