@@ -460,6 +460,63 @@ test('parallel tool calls are not mistaken for an edit', { concurrency: false },
   }
 });
 
+test('a fork left by two processes shows the branch that is still going', { concurrency: false }, async () => {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'claude-two-process-fork-'));
+  const sessionId = 'claude-two-process-session';
+
+  try {
+    const transcriptPath = path.join(tempRoot, `${sessionId}.jsonl`);
+    // Two processes resumed one conversation from the same point. The live copy
+    // wrote the user's message first; the dying copy wrote a background-task
+    // notification later in the file but then went quiet. File order alone
+    // would call the notification the "replacement" and hide the user's branch.
+    const rows = [
+      {
+        type: 'assistant', uuid: 'f0', parentUuid: null, sessionId,
+        timestamp: '2026-09-23T17:56:44.000Z',
+        message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'working on it' }] },
+      },
+      {
+        type: 'user', uuid: 'live-prompt', parentUuid: 'f0', sessionId, promptSource: 'sdk',
+        timestamp: '2026-09-23T18:04:35.000Z',
+        message: { role: 'user', content: 'why did you stall' },
+      },
+      {
+        type: 'user', uuid: 'dead-note', parentUuid: 'f0', sessionId, promptSource: 'system',
+        timestamp: '2026-09-23T18:13:34.000Z',
+        message: { role: 'user', content: '<task-notification>engineer done</task-notification>' },
+      },
+      {
+        type: 'assistant', uuid: 'dead-reply', parentUuid: 'dead-note', sessionId,
+        timestamp: '2026-09-23T18:13:55.000Z',
+        message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'Paused, two copies' }] },
+      },
+      {
+        type: 'assistant', uuid: 'live-reply', parentUuid: 'live-prompt', sessionId,
+        timestamp: '2026-09-23T18:23:57.000Z',
+        message: { role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'Blocked on you' }] },
+      },
+    ];
+    await writeFile(transcriptPath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+
+    await withIsolatedDatabase(async () => {
+      const now = new Date().toISOString();
+      sessionsDb.createSession(sessionId, 'claude', tempRoot, 'Two processes', now, now, transcriptPath);
+
+      const history = await new ClaudeSessionsProvider().fetchHistory(sessionId, {
+        providerSessionId: sessionId,
+      });
+      const text = JSON.stringify(history.messages);
+
+      assert.ok(text.includes('why did you stall'), 'the user message on the live branch is shown');
+      assert.ok(text.includes('Blocked on you'), 'the live branch reply is shown');
+      assert.ok(!text.includes('Paused, two copies'), 'the dead branch is hidden');
+    });
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('resolving an edit anchor returns the assistant turn before it', { concurrency: false }, async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'claude-edit-anchor-'));
 

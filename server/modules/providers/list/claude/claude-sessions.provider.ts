@@ -391,15 +391,52 @@ function dropSupersededPromptBranches(rows: AnyRecord[]): AnyRecord[] {
     }
   }
 
+  // Keep the sibling whose branch holds the newest activity, which is the branch
+  // the CLI resumes. For an edit that is also the last prompt written, as
+  // before. But two processes writing one transcript also make sibling
+  // prompts, and there "last written" hid the live branch and kept the dead one.
+  const childrenOf = new Map<string, AnyRecord[]>();
+  for (const row of rows) {
+    if (typeof row.parentUuid === 'string') {
+      const kids = childrenOf.get(row.parentUuid);
+      if (kids) {
+        kids.push(row);
+      } else {
+        childrenOf.set(row.parentUuid, [row]);
+      }
+    }
+  }
+  const newestIn = (root: AnyRecord): string => {
+    let newest = typeof root.timestamp === 'string' ? root.timestamp : '';
+    const stack = [root];
+    while (stack.length > 0) {
+      const row = stack.pop() as AnyRecord;
+      if (typeof row.timestamp === 'string' && row.timestamp > newest) {
+        newest = row.timestamp;
+      }
+      if (typeof row.uuid === 'string') {
+        stack.push(...(childrenOf.get(row.uuid) ?? []));
+      }
+    }
+    return newest;
+  };
+
   const supersededRoots = new Set<string>();
   for (const siblings of promptSiblings.values()) {
     if (siblings.length < 2) {
       continue;
     }
-    // The transcript is append-only, so the last prompt written under a parent
-    // is the one that replaced the others.
-    for (const row of siblings.slice(0, -1)) {
-      if (typeof row.uuid === 'string') {
+    let keep = siblings[siblings.length - 1];
+    let keepNewest = newestIn(keep);
+    for (const row of siblings) {
+      const newest = newestIn(row);
+      if (newest > keepNewest) {
+        keep = row;
+        keepNewest = newest;
+      }
+    }
+    for (const row of siblings) {
+      if (row !== keep && typeof row.uuid === 'string') {
         supersededRoots.add(row.uuid);
       }
     }
