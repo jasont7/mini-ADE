@@ -39,6 +39,8 @@ import {
 import { createCompleteMessage, createNormalizedMessage } from '@/shared/utils.js';
 
 const activeSessions = new Map();
+// Provider session id -> activeSessions key. See findLiveRun.
+const keyByProviderSession = new Map();
 const pendingToolApprovals = new Map();
 // Sessions cancelled via abort-session. The abort handler already sent the
 // terminal `complete` (aborted: true) to the client, so the run loop must not
@@ -285,6 +287,11 @@ function mapCliOptionsToSDK(options = {}) {
   };
 
   sdkOptions.settingSources = ['project', 'user', 'local'];
+  // Claude in Chrome for sessions started from the UI. The SDK builds its own
+  // argv, so the CLI flag goes through extraArgs. MINI_ADE_CHROME=0 disables.
+  if (process.env.MINI_ADE_CHROME !== '0') {
+    sdkOptions.extraArgs = { ...(sdkOptions.extraArgs || {}), chrome: null };
+  }
 
   // The SDK resumes with the provider-native session id, never the app id.
   // `resumeFromScratch` is set when the very first prompt of a conversation was
@@ -312,7 +319,7 @@ function mapCliOptionsToSDK(options = {}) {
  * @param {Object} writer - WebSocket writer for reconnect support
  * @param {Function} releaseInput - Closes the held stdin stream so the CLI can exit
  */
-function addSession(sessionId, queryInstance, writer = null, releaseInput = null) {
+function addSession(sessionId, queryInstance, writer = null, releaseInput = null, live = null) {
   const existing = activeSessions.get(sessionId);
   // A different live instance under the same key means an earlier run was
   // superseded without being stopped (e.g. an abort that raced run setup and
@@ -340,7 +347,8 @@ function addSession(sessionId, queryInstance, writer = null, releaseInput = null
     status: 'active',
     writer,
     // Re-registered mid-run once the provider session id lands; keep the closer.
-    releaseInput: releaseInput || carried?.releaseInput || null
+    releaseInput: releaseInput || carried?.releaseInput || null,
+    live: live || carried?.live || null
   });
 }
 
@@ -350,6 +358,24 @@ function addSession(sessionId, queryInstance, writer = null, releaseInput = null
  */
 function removeSession(sessionId) {
   activeSessions.delete(sessionId);
+  for (const [providerId, key] of keyByProviderSession) {
+    if (key === sessionId) {
+      keyByProviderSession.delete(providerId);
+    }
+  }
+}
+
+/**
+ * The live run for a conversation, whichever key it registered under: the
+ * gateway passes the app session id, REST callers only the provider id.
+ */
+function findLiveRun(sessionId, providerSessionId) {
+  const direct = sessionId ? getSession(sessionId) : null;
+  if (direct?.live) {
+    return direct.live;
+  }
+  const aliasKey = providerSessionId ? keyByProviderSession.get(providerSessionId) : null;
+  return aliasKey ? getSession(aliasKey)?.live || null : null;
 }
 
 /**
@@ -614,18 +640,41 @@ async function buildPromptMessages(command, images, files, cwd) {
  * @returns {{ stream: AsyncIterable, release: () => void }} Stream plus its closer
  */
 function createHeldPromptStream(messages) {
-  let release;
-  const held = new Promise((resolve) => { release = resolve; });
+  const queue = [...messages];
+  let released = false;
+  let wake = null;
 
   const stream = (async function* () {
-    for (const message of messages) {
-      yield message;
+    // Keeps stdin open — the CLI stays alive until release() is called — and
+    // yields anything push() adds meanwhile, so a follow-up message reaches the
+    // live process instead of a second one.
+    while (true) {
+      while (queue.length > 0) {
+        yield queue.shift();
+      }
+      if (released) {
+        return;
+      }
+      await new Promise((resolve) => { wake = resolve; });
+      wake = null;
     }
-    // Keeps stdin open — the CLI stays alive until release() is called.
-    await held;
   })();
 
-  return { stream, release };
+  const release = () => {
+    released = true;
+    wake?.();
+  };
+  // False once released: the process is winding down and must not be fed.
+  const push = (more) => {
+    if (released) {
+      return false;
+    }
+    queue.push(...more);
+    wake?.();
+    return true;
+  };
+
+  return { stream, release, push };
 }
 
 /**
@@ -714,6 +763,21 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     });
   };
 
+  // One conversation, one CLI process. A turn that starts background work
+  // reports complete while its process stays alive to let that work finish,
+  // and closing its stdin does not stop it: CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS
+  // has the CLI drain background work for up to 30 minutes after input ends.
+  // Spawning a fresh --resume process for the next message therefore left two
+  // copies of the conversation editing the same files. Deliver the message to
+  // the live process instead; the CLI queues it like any other input. Edits
+  // rewind the conversation, so they still need a process of their own.
+  if (!options.resumeAnchorId && !options.resumeFromScratch) {
+    const live = findLiveRun(sessionId, providerSessionId);
+    if (live && await live.continueWith(command, options, ws)) {
+      return;
+    }
+  }
+
   // Closes the held stdin stream so the CLI can wind down. Replaced once the
   // stream exists; the finally block calls it no matter how the run ends.
   let releasePromptStream = () => {};
@@ -754,6 +818,52 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
   // Hoisted above the try so the catch's cleanup can tell whether this run
   // still owns the activeSessions entry (or was superseded by a newer run).
   let queryInstance = null;
+
+  // A follow-up delivered to this process belongs to a new gateway run with its
+  // own writer, so events go to whichever run is current.
+  let currentWriter = ws;
+  if (ws) {
+    ws = new Proxy({}, {
+      get: (_target, prop) => {
+        const value = currentWriter?.[prop];
+        return typeof value === 'function' ? value.bind(currentWriter) : value;
+      }
+    });
+  }
+  let pushPrompt = null;
+  // Callers of continueWith, waiting for the `result` that ends their turn.
+  let turnWaiters = [];
+  const settleTurns = () => {
+    const waiters = turnWaiters;
+    turnWaiters = [];
+    waiters.forEach((resolve) => resolve());
+  };
+  const continueWith = async (nextCommand, nextOptions, nextWs) => {
+    if (!pushPrompt) {
+      return false;
+    }
+    const nextMessages = await buildPromptMessages(
+      nextCommand, nextOptions.images, nextOptions.files, nextOptions.cwd
+    );
+    if (!pushPrompt(nextMessages)) {
+      return false;
+    }
+    // Nothing can interleave before the next await, so rebinding here is safe:
+    // the process has not seen the message yet.
+    currentWriter = nextWs;
+    turnCompleteSent = false;
+    assistantBudgetSent = false;
+    heldForBackgroundWork = false;
+    if (idleReleaseTimer) {
+      clearTimeout(idleReleaseTimer);
+      idleReleaseTimer = null;
+    }
+    const turnDone = new Promise((resolve) => turnWaiters.push(resolve));
+    console.log('[Claude SDK] Follow-up delivered to the live process for session:', capturedSessionId || sessionId);
+    await turnDone;
+    return true;
+  };
+  const liveHandle = { continueWith };
 
   try {
     const resolvedModel = await context.resolveResumeModel(sessionId, options.model);
@@ -891,6 +1001,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
 
     let heldPrompt = createHeldPromptStream(promptMessages);
     releasePromptStream = heldPrompt.release;
+    pushPrompt = heldPrompt.push;
     try {
       queryInstance = query({
         prompt: heldPrompt.stream,
@@ -905,6 +1016,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       heldPrompt.release();
       heldPrompt = createHeldPromptStream(promptMessages);
       releasePromptStream = heldPrompt.release;
+      pushPrompt = heldPrompt.push;
       queryInstance = query({
         prompt: heldPrompt.stream,
         options: sdkOptions
@@ -913,7 +1025,10 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
 
     // Track the query instance for abort capability
     if (sessionKey()) {
-      addSession(sessionKey(), queryInstance, ws, releasePromptStream);
+      addSession(sessionKey(), queryInstance, ws, releasePromptStream, liveHandle);
+      if (capturedSessionId) {
+        keyByProviderSession.set(capturedSessionId, sessionKey());
+      }
     }
 
     // Process streaming messages
@@ -923,7 +1038,8 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       if (message.session_id && !capturedSessionId) {
 
         capturedSessionId = message.session_id;
-        addSession(sessionKey(), queryInstance, ws, releasePromptStream);
+        addSession(sessionKey(), queryInstance, ws, releasePromptStream, liveHandle);
+        keyByProviderSession.set(capturedSessionId, sessionKey());
 
         // Set session ID on writer
         if (ws.setSessionId && typeof ws.setSessionId === 'function') {
@@ -978,6 +1094,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
         if (!turnCompleteSent && !abortPending) {
           turnCompleteSent = true;
           ws.send(createCompleteMessage({ provider: 'claude', sessionId: capturedSessionId || sessionId || null, exitCode: 0 }));
+          settleTurns();
           notifyRunStopped({
             userId: ws?.userId || null,
             provider: 'claude',
@@ -1042,10 +1159,12 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
         stopReason: wasAborted ? 'aborted' : 'completed'
       });
     }
+    settleTurns();
     // Complete
 
   } catch (error) {
     console.error('SDK query error:', error);
+    settleTurns();
 
     // Clean up session on error — only while this run still owns the map entry
     // (a superseding run may have replaced it).
