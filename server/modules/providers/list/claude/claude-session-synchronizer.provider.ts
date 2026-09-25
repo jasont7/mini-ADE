@@ -139,6 +139,11 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
     // ids must be resolved through the provider-id mapping first.
     const existingSession = sessionsDb.getSessionByProviderSessionId(parsed.sessionId)
       ?? sessionsDb.getSessionById(parsed.sessionId);
+    // Headless runs (`claude -p`, SDK scripts) never reach history.jsonl, which
+    // is where the name map comes from. Keep them out of the sidebar.
+    if (!existingSession && !nameMap.has(parsed.sessionId)) {
+      return null;
+    }
     const existingSessionName = existingSession?.custom_name;
     if (existingSessionName && existingSessionName !== 'Untitled Claude Session') {
       return {
