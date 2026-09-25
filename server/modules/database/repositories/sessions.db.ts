@@ -79,6 +79,9 @@ export const sessionsDb = {
    * transcript shows up on disk, instead of producing a duplicate row. An
    * app-created row keeps its existing name; synchronizer names only update
    * rows that were themselves created by indexing provider storage.
+   *
+   * Only folders added through the UI are indexed. A transcript from any other
+   * folder resolves to its existing row if one exists, otherwise to null.
    */
   createSession(
     providerSessionId: string,
@@ -88,11 +91,18 @@ export const sessionsDb = {
     createdAt?: string,
     updatedAt?: string,
     jsonlPath?: string | null
-  ): string {
+  ): string | null {
     const db = getConnection();
     const createdAtValue = normalizeTimestamp(createdAt);
     const updatedAtValue = normalizeTimestamp(updatedAt);
     const normalizedProjectPath = normalizeProjectPathForProvider(provider, projectPath);
+
+    if (!projectsDb.getProjectPath(normalizedProjectPath)) {
+      const knownRow = db
+        .prepare('SELECT session_id FROM sessions WHERE provider_session_id = ? AND provider = ? LIMIT 1')
+        .get(providerSessionId, provider) as { session_id: string } | undefined;
+      return knownRow ? knownRow.session_id : null;
+    }
 
     // First, ensure the project path is recorded in the projects table,
     // since it's a foreign key in the sessions table.

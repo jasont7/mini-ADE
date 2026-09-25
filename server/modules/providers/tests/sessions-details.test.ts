@@ -33,9 +33,10 @@ async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promis
 test('getSessionDetailsById resolves the owning project for a disk-indexed session', async () => {
   await withIsolatedDatabase(() => {
     const projectPath = '/home/user/example-project';
+    projectsDb.createProjectPath(projectPath);
     const sessionId = sessionsDb.createSession('provider-abc', 'claude', projectPath, 'My session');
+    assert.ok(sessionId, 'a session in an added folder is indexed');
     const projectRow = projectsDb.getProjectPath(projectPath);
-    assert.ok(projectRow, 'project row should exist after createSession');
 
     const details = sessionsService.getSessionDetailsById(sessionId);
 
@@ -69,5 +70,15 @@ test('getSessionDetailsById throws SESSION_NOT_FOUND for unknown ids', async () 
       () => sessionsService.getSessionDetailsById('does-not-exist'),
       (error: unknown) => error instanceof AppError && error.code === 'SESSION_NOT_FOUND',
     );
+  });
+});
+
+test('a transcript from a folder never added in the UI is not indexed', async () => {
+  await withIsolatedDatabase(() => {
+    const projectPath = '/home/user/not-added';
+    const sessionId = sessionsDb.createSession('provider-xyz', 'claude', projectPath, 'Stray');
+
+    assert.equal(sessionId, null);
+    assert.equal(projectsDb.getProjectPath(projectPath), null);
   });
 });
