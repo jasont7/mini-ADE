@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { projectsDb } from '@/modules/database/index.js';
+import { renameProjectDirectory } from '@/modules/projects/services/project-rename.service.js';
 import type {
   CreateProjectPathResult,
   ProjectRepositoryRow,
@@ -136,9 +137,9 @@ export async function createProject(
 }
 
 /**
- * Sets `projects.custom_project_name` for the given `projectId` (or clears it when empty).
+ * Renames the project: its folder on disk and every record that points at it.
+ * See project-rename.service.ts for what makes it refuse.
  */
 export function updateProjectDisplayName(projectId: string, newDisplayName: unknown): void {
-  const trimmed = typeof newDisplayName === 'string' ? newDisplayName.trim() : '';
-  projectsDb.updateCustomProjectNameById(projectId, trimmed.length > 0 ? trimmed : null);
+  renameProjectDirectory(projectId, newDisplayName);
 }
