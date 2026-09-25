@@ -32,7 +32,9 @@ type PtySessionEntry = {
 };
 
 const ptySessionsMap = new Map<string, PtySessionEntry>();
-const PTY_SESSION_TIMEOUT = 30 * 60 * 1000;
+// A closed terminal tab kept `claude --resume <id>` alive beside the chat
+// process on the same transcript. Two minutes still survives a phone reconnect.
+const PTY_SESSION_TIMEOUT = 2 * 60 * 1000;
 const SHELL_URL_PARSE_BUFFER_LIMIT = 32768;
 const TRAILING_URL_PUNCTUATION_REGEX = /[)\]}>.,;:!?]+$/;
 
