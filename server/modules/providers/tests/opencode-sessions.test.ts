@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import Database from 'better-sqlite3';
 
-import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { closeConnection, initializeDatabase, projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { OpenCodeSessionSynchronizer } from '@/modules/providers/list/opencode/opencode-session-synchronizer.provider.js';
 import { OpenCodeSessionsProvider } from '@/modules/providers/list/opencode/opencode-sessions.provider.js';
 import { appendImagesInputTag } from '@/shared/image-attachments.js';
@@ -255,6 +255,8 @@ test('OpenCode session synchronizer indexes sqlite sessions without deletable tr
   try {
     await createOpenCodeDatabase(tempRoot, workspacePath);
     await withIsolatedDatabase(() => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       const synchronizer = new OpenCodeSessionSynchronizer();
       const processed = synchronizer.synchronize();
 
@@ -282,6 +284,8 @@ test('OpenCode session synchronizer returns the app session id once provider map
   try {
     await createOpenCodeDatabase(tempRoot, workspacePath);
     await withIsolatedDatabase(() => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       sessionsDb.createAppSession('app-session-1', 'opencode', workspacePath);
       sessionsDb.assignProviderSessionId('app-session-1', 'open-session-1');
 
@@ -307,6 +311,8 @@ test('OpenCode session synchronizer adopts the pending app session before watche
   try {
     await createOpenCodeDatabase(tempRoot, workspacePath);
     await withIsolatedDatabase(() => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       sessionsDb.createAppSession('app-session-race', 'opencode', workspacePath);
 
       const synchronizer = new OpenCodeSessionSynchronizer();
@@ -485,6 +491,8 @@ test('OpenCode synchronizer preserves the title assigned when CloudCLI creates a
       firstUserText: 'OpenCode first user prompt',
     });
     await withIsolatedDatabase(async () => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       sessionsDb.createAppSession('app-1', 'opencode', workspacePath, 'Fix the checkout crash');
       sessionsDb.assignProviderSessionId('app-1', 'oc-app-1');
 
@@ -511,6 +519,8 @@ test('OpenCode synchronizer keeps the stored title for indexed sessions', { conc
       firstUserText: 'This prompt should be ignored',
     });
     await withIsolatedDatabase(async () => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       await new OpenCodeSessionSynchronizer().synchronize();
 
       assert.equal(sessionsDb.getSessionById('oc-indexed-1')?.custom_name, 'OpenCode generated title');

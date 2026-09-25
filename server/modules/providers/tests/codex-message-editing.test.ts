@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { closeConnection, initializeDatabase, projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { codexAppServer } from '@/modules/providers/list/codex/codex-app-server.client.js';
 import { CodexSessionSynchronizer } from '@/modules/providers/list/codex/codex-session-synchronizer.provider.js';
 import { CodexSessionsProvider } from '@/modules/providers/list/codex/codex-sessions.provider.js';
@@ -90,6 +90,8 @@ async function withIndexedSession(
   try {
     await writeRollout(tempRoot, 'thread-1', workspacePath, rows);
     await withIsolatedDatabase(async () => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       await new CodexSessionSynchronizer().synchronize();
       await runTest({ sessionId: 'thread-1', workspacePath, homeDir: tempRoot });
     });

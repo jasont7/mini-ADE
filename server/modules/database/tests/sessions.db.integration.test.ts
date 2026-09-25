@@ -166,3 +166,25 @@ test('recent sessions are globally ordered, paginated, and limited to visible co
     );
   });
 });
+
+test('a transcript found on disk is only indexed when its folder was added in the UI', async () => {
+  await withIsolatedDatabase(() => {
+    projectsDb.createProjectPath('/workspace/added');
+
+    assert.equal(
+      sessionsDb.indexDiscoveredSession('native-added', 'claude', '/workspace/added', 'Added'),
+      'native-added',
+    );
+    assert.equal(sessionsDb.indexDiscoveredSession('native-stray', 'claude', '/workspace/stray', 'Stray'), null);
+    assert.equal(projectsDb.getProjectPath('/workspace/stray'), null, 'no project row appears for a stray folder');
+  });
+});
+
+test('a known session keeps resolving after its folder is no longer added', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createSession('native-known', 'claude', '/workspace/removed', 'Known');
+    projectsDb.deleteProjectPath('/workspace/removed');
+
+    assert.equal(sessionsDb.indexDiscoveredSession('native-known', 'claude', '/workspace/removed'), 'native-known');
+  });
+});

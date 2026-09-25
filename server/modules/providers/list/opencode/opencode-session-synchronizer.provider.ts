@@ -141,7 +141,7 @@ export class OpenCodeSessionSynchronizer implements IProviderSessionSynchronizer
     // must stay null to avoid deleting opencode.db when one app session is removed.
     // Return the canonical stored row id so watcher-triggered sidebar updates
     // stay on the app session once provider_session_id has already been mapped.
-    return sessionsDb.createSession(
+    return sessionsDb.indexDiscoveredSession(
       sessionId,
       this.provider,
       projectPath,

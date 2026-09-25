@@ -56,7 +56,7 @@ export class CursorSessionSynchronizer implements IProviderSessionSynchronizer {
       }
 
       const timestamps = await readFileTimestamps(filePath);
-      sessionsDb.createSession(
+      sessionsDb.indexDiscoveredSession(
         parsed.sessionId,
         this.provider,
         parsed.projectPath,
@@ -85,7 +85,7 @@ export class CursorSessionSynchronizer implements IProviderSessionSynchronizer {
     }
 
     const timestamps = await readFileTimestamps(filePath);
-    return sessionsDb.createSession(
+    return sessionsDb.indexDiscoveredSession(
       parsed.sessionId,
       this.provider,
       parsed.projectPath,

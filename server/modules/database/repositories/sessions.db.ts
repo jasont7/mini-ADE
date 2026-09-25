@@ -71,6 +71,31 @@ function normalizeProjectPathForProvider(provider: string, projectPath: string):
 
 export const sessionsDb = {
   /**
+   * `createSession` for a transcript a synchronizer found on disk, limited to
+   * folders added through the UI. A transcript from any other folder resolves
+   * to its existing row if it has one and is otherwise skipped (null), so the
+   * sidebar only lists projects the user added.
+   */
+  indexDiscoveredSession(
+    providerSessionId: string,
+    provider: string,
+    projectPath: string,
+    customName?: string,
+    createdAt?: string,
+    updatedAt?: string,
+    jsonlPath?: string | null
+  ): string | null {
+    if (!projectsDb.getProjectPath(normalizeProjectPathForProvider(provider, projectPath))) {
+      const knownRow = getConnection()
+        .prepare('SELECT session_id FROM sessions WHERE provider_session_id = ? AND provider = ? LIMIT 1')
+        .get(providerSessionId, provider) as { session_id: string } | undefined;
+      return knownRow ? knownRow.session_id : null;
+    }
+
+    return this.createSession(providerSessionId, provider, projectPath, customName, createdAt, updatedAt, jsonlPath);
+  },
+
+  /**
    * Upserts one session row discovered on disk by a provider synchronizer.
    *
    * The given id is the provider-native session id. Rows are keyed by
@@ -79,9 +104,6 @@ export const sessionsDb = {
    * transcript shows up on disk, instead of producing a duplicate row. An
    * app-created row keeps its existing name; synchronizer names only update
    * rows that were themselves created by indexing provider storage.
-   *
-   * Only folders added through the UI are indexed. A transcript from any other
-   * folder resolves to its existing row if one exists, otherwise to null.
    */
   createSession(
     providerSessionId: string,
@@ -91,18 +113,11 @@ export const sessionsDb = {
     createdAt?: string,
     updatedAt?: string,
     jsonlPath?: string | null
-  ): string | null {
+  ): string {
     const db = getConnection();
     const createdAtValue = normalizeTimestamp(createdAt);
     const updatedAtValue = normalizeTimestamp(updatedAt);
     const normalizedProjectPath = normalizeProjectPathForProvider(provider, projectPath);
-
-    if (!projectsDb.getProjectPath(normalizedProjectPath)) {
-      const knownRow = db
-        .prepare('SELECT session_id FROM sessions WHERE provider_session_id = ? AND provider = ? LIMIT 1')
-        .get(providerSessionId, provider) as { session_id: string } | undefined;
-      return knownRow ? knownRow.session_id : null;
-    }
 
     // First, ensure the project path is recorded in the projects table,
     // since it's a foreign key in the sessions table.

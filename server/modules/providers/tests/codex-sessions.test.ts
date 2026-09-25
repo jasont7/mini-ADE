@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
+import { closeConnection, initializeDatabase, projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { CodexSessionSynchronizer } from '@/modules/providers/list/codex/codex-session-synchronizer.provider.js';
 import { CodexSessionsProvider, parseCodexExecScript, readCodexMemoryCitations } from '@/modules/providers/list/codex/codex-sessions.provider.js';
 
@@ -73,6 +73,8 @@ test('Codex synchronizer preserves the title assigned when CloudCLI creates a se
   try {
     await writeCodexTranscript(tempRoot, 'codex-app-1', workspacePath, 'Provider transcript title must not win');
     await withIsolatedDatabase(async () => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       // The app allocates its own id and later maps the provider id onto it,
       // exactly as a message sent from cloudcli does.
       sessionsDb.createAppSession('app-1', 'codex', workspacePath, 'Fix the login redirect');
@@ -117,6 +119,8 @@ test('Codex synchronizer skips sub-agent rollout files', { concurrency: false },
     await writeCodexTranscript(tempRoot, 'codex-parent-1', workspacePath);
 
     await withIsolatedDatabase(async () => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       const synchronizer = new CodexSessionSynchronizer();
       const processed = await synchronizer.synchronize();
 
@@ -141,6 +145,8 @@ test('Codex synchronizer leaves indexed sessions untitled when no name is availa
     // used as the title, preserving the existing indexing behavior.
     await writeCodexTranscript(tempRoot, 'codex-indexed-1', workspacePath, 'This prompt should be ignored');
     await withIsolatedDatabase(async () => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       const synchronizer = new CodexSessionSynchronizer();
       await synchronizer.synchronize();
 
@@ -213,6 +219,8 @@ test('Codex history translates wrapped exec scripts into the tools they ran', { 
     await writeFile(transcriptPath, `${transcriptLines.join('\n')}\n`, 'utf8');
 
     await withIsolatedDatabase(async () => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       sessionsDb.createAppSession('app-exec-1', 'codex', workspacePath);
       sessionsDb.assignProviderSessionId('app-exec-1', providerSessionId);
       await new CodexSessionSynchronizer().synchronize();
@@ -272,6 +280,8 @@ test('Codex history strips the sandbox envelopes from shell output', { concurren
     ].join('\n')}\n`, 'utf8');
 
     await withIsolatedDatabase(async () => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       sessionsDb.createAppSession('app-output-1', 'codex', workspacePath);
       sessionsDb.assignProviderSessionId('app-output-1', providerSessionId);
       await new CodexSessionSynchronizer().synchronize();
@@ -338,6 +348,8 @@ test('Codex history renders one file row per patched file, from the applied diff
     ].join('\n')}\n`, 'utf8');
 
     await withIsolatedDatabase(async () => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       sessionsDb.createAppSession('app-patch-1', 'codex', workspacePath);
       sessionsDb.assignProviderSessionId('app-patch-1', providerSessionId);
       await new CodexSessionSynchronizer().synchronize();
@@ -435,6 +447,8 @@ test('Codex history attaches a spawned agent\'s own transcript to the Task row',
     );
 
     await withIsolatedDatabase(async () => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       sessionsDb.createAppSession('app-parent-2', 'codex', workspacePath);
       sessionsDb.assignProviderSessionId('app-parent-2', providerSessionId);
       await new CodexSessionSynchronizer().synchronize();
@@ -511,6 +525,8 @@ test('a plan followed by a memory citation is still recognized as a plan', async
     ].join('\n')}\n`, 'utf8');
 
     await withIsolatedDatabase(async () => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       sessionsDb.createAppSession('app-plan-citation-1', 'codex', workspacePath);
       sessionsDb.assignProviderSessionId('app-plan-citation-1', providerSessionId);
       await new CodexSessionSynchronizer().synchronize();
@@ -593,6 +609,8 @@ test('Codex history restores user prompts from typed item_completed rows', { con
     );
 
     await withIsolatedDatabase(async () => {
+      // The synchronizer only indexes folders added in the UI.
+      projectsDb.createProjectPath(workspacePath);
       sessionsDb.createAppSession('app-typed-1', 'codex', workspacePath);
       sessionsDb.assignProviderSessionId('app-typed-1', providerSessionId);
       await new CodexSessionSynchronizer().synchronize();
