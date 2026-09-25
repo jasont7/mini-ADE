@@ -5,13 +5,13 @@ import type {
   Project,
   ProjectSession,
   ProjectSortOrder,
+  SessionViewState,
   SessionWithProvider,
   SettingsProject,
 } from '@/shared/types';
 
 // Presentation data the sidebar derives from a session before rendering its row.
 type SessionViewModel = {
-  isActive: boolean;
   sessionName: string;
   sessionTime: string;
   messageCount: number;
@@ -33,6 +33,44 @@ export const formatCompactAge = (
   const hours = Math.floor(minutes / 60);
   return hours < 24 ? `${hours}hr` : `${Math.floor(hours / 24)}d`;
 };
+
+const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+const toMs = (timestamp: string | null | undefined): number => {
+  const ms = timestamp ? Date.parse(timestamp) : Number.NaN;
+  return Number.isNaN(ms) ? 0 : ms;
+};
+
+const later = (left: string | null | undefined, right: string | null | undefined): string | null => {
+  if (!left || !right) {
+    return left || right || null;
+  }
+  return toMs(right) > toMs(left) ? right : left;
+};
+
+/**
+ * A row's view state: the newer of what its list payload carried and what the
+ * server has pushed since. Both timestamps only move forward, so the newer one
+ * is always right, even after a reconnect replays an older payload.
+ */
+export const resolveSessionViewState = (
+  own: Partial<SessionViewState>,
+  live: SessionViewState | undefined,
+): SessionViewState => ({
+  lastViewedAt: later(own.lastViewedAt, live?.lastViewedAt),
+  lastCompletedAt: later(own.lastCompletedAt, live?.lastCompletedAt),
+});
+
+/** A response finished after the session was last on screen anywhere. */
+export const isSessionUnread = ({ lastViewedAt, lastCompletedAt }: SessionViewState): boolean =>
+  Boolean(lastCompletedAt) && toMs(lastCompletedAt) > toMs(lastViewedAt);
+
+/** A session greys out once a day passes with nothing new in it and nobody opening it. */
+export const isSessionStale = (
+  lastActivity: string | null | undefined,
+  lastViewedAt: string | null | undefined,
+  currentTime: Date,
+): boolean => currentTime.getTime() - Math.max(toMs(lastActivity), toMs(lastViewedAt)) > STALE_AFTER_MS;
 
 const getCreatedTimestamp = (session: SessionWithProvider): string => {
   return String(session.createdAt || session.created_at || '');
@@ -63,14 +101,9 @@ const getSessionTime = (session: SessionWithProvider): string => {
 
 export const createSessionViewModel = (
   session: SessionWithProvider,
-  currentTime: Date,
   t: TFunction,
 ): SessionViewModel => {
-  const sessionDate = getSessionDate(session);
-  const diffInMinutes = Math.floor((currentTime.getTime() - sessionDate.getTime()) / (1000 * 60));
-
   return {
-    isActive: diffInMinutes < 10,
     sessionName: getSessionName(session, t),
     sessionTime: getSessionTime(session),
     messageCount: Number(session.messageCount || 0),

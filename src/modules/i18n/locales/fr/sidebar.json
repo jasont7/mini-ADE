@@ -45,12 +45,10 @@
     "removeFromFavorites": "Retirer des favoris",
     "editSessionName": "Modifier manuellement le nom de la session",
     "deleteSession": "Supprimer définitivement cette session",
-    "activeSessionIndicator": "Session récemment active (10 dernières minutes)",
     "save": "Enregistrer",
     "cancel": "Annuler",
     "clearSearch": "Effacer la recherche",
-    "openCommandPalette": "Ouvrir la palette de commandes",
-    "attentionRequiredIndicator": "La session nécessite votre attention"
+    "openCommandPalette": "Ouvrir la palette de commandes"
   },
   "navigation": {
     "chat": "Chat",

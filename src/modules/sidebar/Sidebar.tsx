@@ -8,7 +8,7 @@ import { useSidebarController } from '@/modules/sidebar/hooks/useSidebarControll
 import { useTaskMaster, useTasksSettings } from '@/modules/task-master';
 import { usePaletteOps } from '@/modules/command-palette';
 import { useBusySessionIdSet } from '@/shared/context/SessionProtectionContext';
-import type { LLMProvider, LoadingProgress, MCPServerStatus, Project, ProjectSession, SidebarProjectListProps } from '@/shared/types';
+import type { LLMProvider, LoadingProgress, MCPServerStatus, Project, ProjectSession, SessionViewState, SidebarProjectListProps } from '@/shared/types';
 import SidebarCollapsed from '@/modules/sidebar/SidebarCollapsed';
 import SidebarContent from '@/modules/sidebar/SidebarContent';
 import SidebarModals from '@/modules/sidebar/SidebarModals';
@@ -17,7 +17,7 @@ type SidebarProps = {
   projects: Project[];
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
-  attentionSessionIds: ReadonlySet<string>;
+  sessionViewStates: ReadonlyMap<string, SessionViewState>;
   onProjectSelect: (project: Project) => void;
   onSessionSelect: (session: ProjectSession) => void;
   onNewSession: (project: Project) => void;
@@ -46,7 +46,7 @@ function Sidebar({
   projects,
   selectedProject,
   selectedSession,
-  attentionSessionIds,
+  sessionViewStates,
   onProjectSelect,
   onSessionSelect,
   onNewSession,
@@ -201,7 +201,7 @@ function Sidebar({
     getProjectSessions,
     loadingMoreProjects,
     activeSessions,
-    attentionSessionIds,
+    sessionViewStates,
     isProjectStarred,
     onRenameDraftChange: updateRenameDraft,
     onToggleProject: toggleProject,

@@ -68,7 +68,17 @@ export type ScheduledMessage = {
 };
 
 /** A single conversation inside a project, as returned by the sessions API and rendered in the sidebar and chat. */
-export type ProjectSession = {
+/**
+ * When a session was last on screen for any client and when a run in it last
+ * finished (ISO, or null). The server records both, so the unread dot and the
+ * grey-out derived from them are the same on every device.
+ */
+export type SessionViewState = {
+  lastViewedAt: string | null;
+  lastCompletedAt: string | null;
+};
+
+export type ProjectSession = Partial<SessionViewState> & {
   id: string;
   title?: string;
   summary?: string;
@@ -1265,8 +1275,11 @@ export type SessionRowActions = {
   activeRename: ActiveSidebarRename | null;
   /** Sessions with a run in flight: they show a spinner and hide destructive actions. */
   activeSessions: ReadonlySet<string>;
-  /** Sessions waiting on the user, which show the amber dot. */
-  attentionSessionIds: ReadonlySet<string>;
+  /**
+   * View state pushed live by the server since the lists loaded. A row takes
+   * the newer of this and the fields in its own payload.
+   */
+  sessionViewStates: ReadonlyMap<string, SessionViewState>;
   onRenameDraftChange: (draft: string) => void;
   onStartEditingSession: (projectId: string, sessionId: string, initialName: string) => void;
   onCancelEditingSession: () => void;
@@ -1334,7 +1347,7 @@ export type ArchivedSessionListItem = {
 };
 
 /** The subset of archived-session fields needed to render a recent-conversations row and reopen the session it points at. */
-export type RecentConversationListItem = Pick<
+export type RecentConversationListItem = Partial<SessionViewState> & Pick<
   ArchivedSessionListItem,
   'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
 >;

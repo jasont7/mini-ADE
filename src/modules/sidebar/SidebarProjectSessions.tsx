@@ -2,8 +2,9 @@ import { Plus } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button } from '@/shared/ui';
-import type { LLMProvider, Project, ProjectSession, SessionWithProvider } from '@/shared/types';
+import type { LLMProvider, Project, ProjectSession, SessionViewState, SessionWithProvider } from '@/shared/types';
 import SidebarSessionItem from '@/modules/sidebar/SidebarSessionItem';
+import { resolveSessionViewState } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 
 type SidebarProjectSessionsProps = {
@@ -15,7 +16,7 @@ type SidebarProjectSessionsProps = {
   hasMoreSessions: boolean;
   isLoadingMoreSessions: boolean;
   activeSessions: ReadonlySet<string>;
-  attentionSessionIds: ReadonlySet<string>;
+  sessionViewStates: ReadonlyMap<string, SessionViewState>;
   currentTime: Date;
   /** The session being renamed, when it belongs to this project. */
   sessionRenameId: string | null;
@@ -61,7 +62,7 @@ export default function SidebarProjectSessions({
   hasMoreSessions,
   isLoadingMoreSessions,
   activeSessions,
-  attentionSessionIds,
+  sessionViewStates,
   currentTime,
   sessionRenameId,
   sessionRenameDraft,
@@ -122,28 +123,33 @@ export default function SidebarProjectSessions({
         </div>
       ) : (
         <>
-          {sessions.map((session) => (
-            <SidebarSessionItem
-              key={session.id}
-              project={project}
-              session={session}
-              selectedSession={selectedSession}
-              isProcessing={activeSessions.has(session.id)}
-              needsAttention={attentionSessionIds.has(session.id)}
-              currentTime={currentTime}
-              onRenameDraftChange={onRenameDraftChange}
-              isEditing={session.id === sessionRenameId}
-              renameDraft={session.id === sessionRenameId ? sessionRenameDraft : ''}
-              onStartEditingSession={onStartEditingSession}
-              onCancelEditingSession={onCancelEditingSession}
-              onSaveEditingSession={onSaveEditingSession}
-              onProjectSelect={onProjectSelect}
-              onSessionSelect={onSessionSelect}
-              onDeleteSession={onDeleteSession}
-              onForkSession={onForkSession}
-              t={t}
-            />
-          ))}
+          {sessions.map((session) => {
+            // Resolved to strings here so a row only redraws when its own state changes.
+            const viewState = resolveSessionViewState(session, sessionViewStates.get(session.id));
+            return (
+              <SidebarSessionItem
+                key={session.id}
+                project={project}
+                session={session}
+                selectedSession={selectedSession}
+                isProcessing={activeSessions.has(session.id)}
+                lastViewedAt={viewState.lastViewedAt}
+                lastCompletedAt={viewState.lastCompletedAt}
+                currentTime={currentTime}
+                onRenameDraftChange={onRenameDraftChange}
+                isEditing={session.id === sessionRenameId}
+                renameDraft={session.id === sessionRenameId ? sessionRenameDraft : ''}
+                onStartEditingSession={onStartEditingSession}
+                onCancelEditingSession={onCancelEditingSession}
+                onSaveEditingSession={onSaveEditingSession}
+                onProjectSelect={onProjectSelect}
+                onSessionSelect={onSessionSelect}
+                onDeleteSession={onDeleteSession}
+                onForkSession={onForkSession}
+                t={t}
+              />
+            );
+          })}
 
           {hasMoreSessions && (
             <Button

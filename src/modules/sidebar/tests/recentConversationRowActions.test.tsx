@@ -45,7 +45,7 @@ const conversation = (
 const makeActions = (overrides: Partial<SessionRowActions> = {}): SessionRowActions => ({
   activeRename: null,
   activeSessions: new Set<string>(),
-  attentionSessionIds: new Set<string>(),
+  sessionViewStates: new Map(),
   onRenameDraftChange: noop,
   onStartEditingSession: noop,
   onCancelEditingSession: noop,
@@ -131,14 +131,49 @@ test('a running session is marked processing and shows a spinner instead of its 
   assert.equal(container.querySelectorAll('time').length, 1);
 });
 
-test('a session needing attention gets the amber dot', () => {
+test('a response that finished after the last view gets the green dot', () => {
   const { container } = renderList(
-    [conversation('s1'), conversation('s2')],
-    makeActions({ attentionSessionIds: new Set(['s2']) }),
+    [
+      conversation('read', { lastCompletedAt: '2026-08-21T09:00:00.000Z', lastViewedAt: '2026-08-21T09:05:00.000Z' }),
+      conversation('unread', { lastCompletedAt: '2026-08-21T09:10:00.000Z', lastViewedAt: '2026-08-21T09:05:00.000Z' }),
+      conversation('never-ran'),
+    ],
+    makeActions(),
   );
 
-  const dots = container.querySelectorAll('[role="status"].bg-amber-500');
+  const dots = container.querySelectorAll('[role="status"].bg-green-500');
   assert.equal(dots.length, 1);
-  const rows = container.querySelectorAll('[data-testid="recent-conversation-row"]');
-  assert.equal(rows.length, 2);
+  assert.equal(dots[0].closest('.group')?.querySelector('a')?.getAttribute('href'), '/session/unread');
+});
+
+test('a view pushed by another device clears the dot without a reload', () => {
+  const unread = conversation('s1', {
+    lastCompletedAt: '2026-08-21T09:10:00.000Z',
+    lastViewedAt: '2026-08-21T09:05:00.000Z',
+  });
+
+  const { container } = renderList(
+    [unread],
+    makeActions({
+      sessionViewStates: new Map([['s1', { lastViewedAt: '2026-08-21T09:20:00.000Z', lastCompletedAt: '2026-08-21T09:10:00.000Z' }]]),
+    }),
+  );
+
+  assert.equal(container.querySelectorAll('[role="status"].bg-green-500').length, 0);
+});
+
+test('a session nobody has touched for a day is greyed out', () => {
+  const dayAndAMinuteAgo = new Date(NOW.getTime() - 24 * 60 * 60 * 1000 - 60 * 1000).toISOString();
+  const { container } = renderList(
+    [
+      conversation('recent'),
+      conversation('stale', { lastActivity: dayAndAMinuteAgo }),
+      conversation('viewed', { lastActivity: dayAndAMinuteAgo, lastViewedAt: new Date(NOW.getTime() - 60 * 1000).toISOString() }),
+    ],
+    makeActions(),
+  );
+
+  const rows = [...container.querySelectorAll('[data-testid="recent-conversation-row"]')];
+  const greyed = rows.map((row) => row.parentElement?.classList.contains('opacity-50'));
+  assert.deepEqual(greyed, [false, true, false]);
 });

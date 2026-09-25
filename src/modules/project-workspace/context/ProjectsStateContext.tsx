@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 
 import { useProjectsState } from '@/modules/project-workspace/hooks/useProjectsState';
+import { useReportViewedSession } from '@/modules/project-workspace/hooks/useReportViewedSession';
 import type { IsSessionProcessing,ServerEvent } from '@/shared/types';
 
 type ProjectsState = ReturnType<typeof useProjectsState>;
@@ -73,6 +74,7 @@ export function ProjectsStateProvider({
     isMobile,
     isSessionProcessing,
   });
+  useReportViewedSession(state.selectedSession?.id ?? sessionId ?? null);
 
   const sidebarState = useMemo<ProjectSidebarState>(
     () => ({

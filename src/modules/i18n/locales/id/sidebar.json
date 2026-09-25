@@ -45,12 +45,10 @@
     "removeFromFavorites": "Hapus dari favorit",
     "editSessionName": "Edit nama sesi secara manual",
     "deleteSession": "Hapus sesi ini secara permanen",
-    "activeSessionIndicator": "Sesi baru-baru ini aktif (10 menit terakhir)",
     "save": "Simpan",
     "cancel": "Batal",
     "clearSearch": "Hapus pencarian",
-    "openCommandPalette": "Buka palet perintah",
-    "attentionRequiredIndicator": "Sesi memerlukan perhatian"
+    "openCommandPalette": "Buka palet perintah"
   },
   "navigation": {
     "chat": "Chat",

@@ -5,7 +5,12 @@ import type { TFunction } from 'i18next';
 import { Button, LLMProviderLogo, Tooltip } from '@/shared/ui';
 import { cn } from '@/shared/utils';
 import type { ProjectSession, RecentConversationListItem, SessionRowActions } from '@/shared/types';
-import { formatCompactAge } from '@/modules/sidebar/utils/sidebarProjectFormatting';
+import {
+  formatCompactAge,
+  isSessionStale,
+  isSessionUnread,
+  resolveSessionViewState,
+} from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
 
 type SidebarRecentConversationsProps = {
@@ -110,8 +115,13 @@ export default function SidebarRecentConversations({
           const isSelected = String(selectedSession?.id ?? '') === conversation.sessionId;
           const age = formatCompactAge(conversation.lastActivity, currentTime);
           const isProcessing = sessionActions.activeSessions.has(conversation.sessionId);
-          const showAttentionIndicator =
-            sessionActions.attentionSessionIds.has(conversation.sessionId) && !isSelected;
+          const viewState = resolveSessionViewState(
+            conversation,
+            sessionActions.sessionViewStates.get(conversation.sessionId),
+          );
+          const showUnreadIndicator = !isSelected && isSessionUnread(viewState);
+          const isStale = !isSelected && !isProcessing && !showUnreadIndicator
+            && isSessionStale(conversation.lastActivity, viewState.lastViewedAt, currentTime);
           // Resolved per row so a keystroke in one rename does not redraw the rest.
           const rename = sessionActions.activeRename;
           const sessionRename =
@@ -130,22 +140,20 @@ export default function SidebarRecentConversations({
           };
 
           return (
-            <div key={conversation.sessionId} className="group relative">
-              {/*
-                * Only the amber "needs attention" dot, and the spinner below. The
-                * Projects row also has a green dot for a session touched recently,
-                * which carries no information in a list ordered by recency.
-                */}
-              {showAttentionIndicator && (
+            <div
+              key={conversation.sessionId}
+              className={cn('group relative transition-opacity', isStale && 'opacity-50 hover:opacity-100')}
+            >
+              {showUnreadIndicator && (
                 <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 transform">
                   <Tooltip
-                    content={t('tooltips.attentionRequiredIndicator', { defaultValue: 'Session needs attention' })}
+                    content={t('tooltips.unreadIndicator', { defaultValue: 'New response' })}
                     position="right"
                   >
                     <div
                       role="status"
-                      aria-label={t('tooltips.attentionRequiredIndicator', { defaultValue: 'Session needs attention' })}
-                      className="h-2 w-2 animate-pulse rounded-full bg-amber-500"
+                      aria-label={t('tooltips.unreadIndicator', { defaultValue: 'New response' })}
+                      className="h-2 w-2 rounded-full bg-green-500"
                     />
                   </Tooltip>
                 </div>

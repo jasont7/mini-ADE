@@ -5,7 +5,7 @@ import type { TFunction } from 'i18next';
 import { Badge, Dialog, DialogContent, DialogTitle, LLMProviderLogo, Tooltip, buttonVariants } from '@/shared/ui';
 import { cn } from '@/shared/utils';
 import type { LLMProvider, Project, ProjectSession, SessionWithProvider } from '@/shared/types';
-import { PROVIDER_LABELS, createSessionViewModel, formatCompactAge } from '@/modules/sidebar/utils/sidebarProjectFormatting';
+import { PROVIDER_LABELS, createSessionViewModel, formatCompactAge, isSessionStale, isSessionUnread } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import { useCompactSidebar } from '@/modules/sidebar/hooks/useCompactSidebar';
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
 import SessionOptions from '@/modules/sidebar/SessionOptions';
@@ -15,7 +15,10 @@ type SidebarSessionItemProps = {
   session: SessionWithProvider;
   selectedSession: ProjectSession | null;
   isProcessing: boolean;
-  needsAttention: boolean;
+  /** Last time the session was on screen on any device (ISO), or null. */
+  lastViewedAt: string | null;
+  /** Last time a run in the session finished (ISO), or null. */
+  lastCompletedAt: string | null;
   currentTime: Date;
   /** Resolved for this row, so a keystroke elsewhere does not invalidate it. */
   isEditing: boolean;
@@ -38,7 +41,8 @@ function SidebarSessionItem({
   session,
   selectedSession,
   isProcessing,
-  needsAttention,
+  lastViewedAt,
+  lastCompletedAt,
   currentTime,
   isEditing,
   renameDraft,
@@ -53,12 +57,13 @@ function SidebarSessionItem({
   t,
 }: SidebarSessionItemProps) {
   const isCompact = useCompactSidebar();
-  const sessionView = createSessionViewModel(session, currentTime, t);
+  const sessionView = createSessionViewModel(session, t);
   const isSelected = selectedSession?.id === session.id;
   const compactSessionAge = formatCompactAge(sessionView.sessionTime, currentTime);
   const [isMobileOptionsOpen, setIsMobileOptionsOpen] = useState(false);
-  const showAttentionIndicator = needsAttention && !isSelected;
-  const showRecentIndicator = !showAttentionIndicator && !isProcessing && sessionView.isActive;
+  const showUnreadIndicator = !isSelected && isSessionUnread({ lastViewedAt, lastCompletedAt });
+  const isStale = !isSelected && !isProcessing && !showUnreadIndicator
+    && isSessionStale(sessionView.sessionTime, lastViewedAt, currentTime);
   const providerLabel = PROVIDER_LABELS[session.__provider];
 
   // The desktop controls live in SessionOptions, which owns the rename panel and
@@ -100,24 +105,14 @@ function SidebarSessionItem({
   };
 
   return (
-    <div className="group relative">
-      {(showAttentionIndicator || showRecentIndicator) && (
+    <div className={cn('group relative transition-opacity', isStale && 'opacity-50 hover:opacity-100')}>
+      {showUnreadIndicator && (
         <div className="absolute left-0 top-1/2 -translate-x-1 -translate-y-1/2 transform">
-          <Tooltip
-            content={showAttentionIndicator
-              ? t('tooltips.attentionRequiredIndicator', { defaultValue: 'Session needs attention' })
-              : t('tooltips.activeSessionIndicator')}
-            position="right"
-          >
+          <Tooltip content={t('tooltips.unreadIndicator', { defaultValue: 'New response' })} position="right">
             <div
               role="status"
-              aria-label={showAttentionIndicator
-                ? t('tooltips.attentionRequiredIndicator', { defaultValue: 'Session needs attention' })
-                : t('tooltips.activeSessionIndicator')}
-              className={cn(
-                'h-2 w-2 animate-pulse rounded-full',
-                showAttentionIndicator ? 'bg-amber-500' : 'bg-green-500',
-              )}
+              aria-label={t('tooltips.unreadIndicator', { defaultValue: 'New response' })}
+              className="h-2 w-2 rounded-full bg-green-500"
             />
           </Tooltip>
         </div>
@@ -131,8 +126,6 @@ function SidebarSessionItem({
             isSelected ? 'bg-primary/20 border-primary/50' : '',
             !isSelected && isProcessing
               ? 'border-border/60 bg-muted/20'
-              : !isSelected && sessionView.isActive
-              ? 'border-green-500/30 bg-green-50/5 dark:bg-green-900/5'
               : 'border-border/30',
           )}
           onClick={selectMobileSession}
@@ -333,9 +326,7 @@ function SidebarSessionItem({
             isSelected ? 'border-primary/50 bg-primary/20' : 'border-border/30',
             !isSelected && isProcessing
               ? 'border-border/60 bg-muted/20 hover:bg-muted/25'
-              : !isSelected && sessionView.isActive
-                ? 'border-green-500/30 bg-green-50/5 hover:bg-green-50/10 dark:bg-green-900/5 dark:hover:bg-green-900/10'
-                : 'hover:bg-accent/50',
+              : 'hover:bg-accent/50',
           )}
           // Left-click keeps in-app navigation; Ctrl/Cmd/middle-click and the
           // native right-click menu use the href to open a new tab/window.

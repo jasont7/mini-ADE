@@ -4,7 +4,7 @@ import { render } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, test, vi } from 'vitest';
 
-import type { ActiveSidebarRename, Project, SidebarProjectListProps } from '@/shared/types';
+import type { ActiveSidebarRename, Project, SessionViewState, SidebarProjectListProps } from '@/shared/types';
 
 /**
  * SidebarProjectItem and SidebarSessionItem are memoized because a websocket
@@ -56,9 +56,10 @@ const NOW = new Date('2026-08-21T10:00:00.000Z');
 
 // Held outside listProps because the caller owns their stability in production:
 // activeSessions is useBusySessionIdSet(), which only changes identity when
-// membership changes, and attentionSessionIds is passed into Sidebar from above.
+// membership changes, and sessionViewStates is passed into Sidebar from above.
 // Rebuilding them per render here would test the harness, not the component.
 const NO_SESSION_IDS: ReadonlySet<string> = new Set<string>();
+const NO_VIEW_STATES: ReadonlyMap<string, SessionViewState> = new Map<string, SessionViewState>();
 
 const listProps = (activeRename: ActiveSidebarRename | null): SidebarProjectListProps => ({
   projects: [PROJECT_A, PROJECT_B],
@@ -78,7 +79,7 @@ const listProps = (activeRename: ActiveSidebarRename | null): SidebarProjectList
   onLoadMoreSessions: noop,
   loadingMoreProjects: new Set(),
   activeSessions: NO_SESSION_IDS,
-  attentionSessionIds: NO_SESSION_IDS,
+  sessionViewStates: NO_VIEW_STATES,
   isProjectStarred: () => false,
   onRenameDraftChange: noop,
   onToggleProject: noop,
@@ -202,7 +203,7 @@ const sessionsProps = (sessionRenameId: string | null, sessionRenameDraft: strin
   hasMoreSessions: false,
   isLoadingMoreSessions: false,
   activeSessions: NO_SESSION_IDS,
-  attentionSessionIds: NO_SESSION_IDS,
+  sessionViewStates: NO_VIEW_STATES,
   currentTime: NOW,
   sessionRenameId,
   sessionRenameDraft,
