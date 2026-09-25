@@ -119,6 +119,8 @@ test('recent sessions map project metadata and preserve database pagination', { 
         projectDisplayName: 'Recent Project',
         sessionTitle: 'Newer conversation',
         lastActivity: '2026-08-01T11:00:00.000Z',
+        lastViewedAt: null,
+        lastCompletedAt: null,
       }],
       total: 2,
       hasMore: true,

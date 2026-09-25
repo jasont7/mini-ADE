@@ -11,6 +11,7 @@ import type {
   FetchHistoryResult,
   LLMProvider,
   NormalizedMessage,
+  SessionViewState,
 } from '@/shared/types.js';
 import { AppError, sliceTailPage } from '@/shared/utils.js';
 
@@ -34,7 +35,7 @@ type ArchivedSessionListItem = {
   isProjectArchived: boolean;
 };
 
-type RecentSessionListItem = Pick<
+type RecentSessionListItem = SessionViewState & Pick<
   ArchivedSessionListItem,
   'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
 >;
@@ -163,6 +164,8 @@ export const sessionsService = {
         projectDisplayName: resolveProjectDisplayName(projectPath, project?.custom_project_name),
         sessionTitle: session.custom_name?.trim() || session.session_id,
         lastActivity: session.updated_at ?? session.created_at ?? null,
+        lastViewedAt: session.last_viewed_at,
+        lastCompletedAt: session.last_completed_at,
       };
     });
 

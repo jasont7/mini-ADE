@@ -6,6 +6,7 @@ import { sessionsDb } from '@/modules/database/index.js';
 import { providerModelsService, sessionsService } from '@/modules/providers/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
+import { sessionViewStateService } from '@/modules/websocket/services/session-view-state.service.js';
 import {
   getGlobalImageAssetsDir,
   isImageAttachmentDescriptor,
@@ -529,11 +530,12 @@ function handlePermissionResponse(data: AnyRecord, dependencies: ChatWebSocketDe
  * - `chat.abort`               { sessionId }
  * - `chat.subscribe`           { sessions: [{ sessionId, lastSeq? }] }
  * - `chat.permission-response` { requestId, allow, updatedInput?, message?, rememberEntry? }
+ * - `session.viewing`          { sessionId | null } — what this client has on screen
  *
  * Outbound protocol (server to client): every frame is `kind`-based — either
  * a provider `NormalizedMessage` (with `seq`) or a gateway event
- * (`chat_subscribed`, `session_upserted`, `loading_progress`,
- * `protocol_error`).
+ * (`chat_subscribed`, `session_upserted`, `session_view_state`,
+ * `loading_progress`, `protocol_error`).
  */
 /**
  * Runs a turn for a session with no client attached.
@@ -636,6 +638,12 @@ export function handleChatConnection(
         case 'chat.permission-response':
           handlePermissionResponse(data, dependencies);
           return;
+        case 'session.viewing':
+          sessionViewStateService.setViewedSession(
+            ws,
+            typeof data.sessionId === 'string' && data.sessionId ? data.sessionId : null,
+          );
+          return;
         default:
           sendProtocolError(ws, 'UNKNOWN_MESSAGE_TYPE', `Unknown message type "${messageType}".`);
           return;
@@ -650,5 +658,6 @@ export function handleChatConnection(
   ws.on('close', () => {
     console.log('[INFO] Chat client disconnected');
     connectedClients.delete(ws);
+    sessionViewStateService.dropConnection(ws);
   });
 }

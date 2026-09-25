@@ -1,6 +1,7 @@
 import { sessionsDb } from '@/modules/database/index.js';
 import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-writer.service.js';
 import { broadcastSessionUpserted } from '@/modules/websocket/services/session-upsert-broadcast.service.js';
+import { sessionViewStateService } from '@/modules/websocket/services/session-view-state.service.js';
 import type {
   LLMProvider,
   NormalizedMessage,
@@ -105,6 +106,14 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     run.status = 'completed';
     run.completedAt = Date.now();
     evictRunLater(run.appSessionId);
+    try {
+      sessionViewStateService.recordRunCompleted(run.appSessionId);
+    } catch (error) {
+      console.error('[ChatRunRegistry] Failed to record run completion', {
+        appSessionId: run.appSessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   run.events.push(outbound);

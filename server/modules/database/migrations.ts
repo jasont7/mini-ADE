@@ -457,6 +457,21 @@ const addSessionEffortColumn = (db: Database): void => {
   addColumnToTableIfNotExists(db, 'sessions', columnNames, 'effort', 'TEXT');
 };
 
+/**
+ * Adds `last_viewed_at` and `last_completed_at`, which drive the sidebar's
+ * unread dot and its greying of untouched sessions.
+ *
+ * Existing rows stay NULL: a session with no recorded completion is never
+ * unread, so upgrading does not light up every old session at once.
+ */
+const addSessionViewColumns = (db: Database): void => {
+  const sessionsTableInfo = getTableInfo(db, 'sessions');
+  const columnNames = sessionsTableInfo.map((column) => column.name);
+
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'last_viewed_at', 'DATETIME');
+  addColumnToTableIfNotExists(db, 'sessions', columnNames, 'last_completed_at', 'DATETIME');
+};
+
 const ensureProjectsForSessionPaths = (db: Database): void => {
   if (!tableExists(db, 'sessions')) {
     return;
@@ -519,6 +534,7 @@ export const runMigrations = (db: Database) => {
     addSessionModelColumn(db);
     addSessionEffortColumn(db);
     addForkedFromSessionIdColumn(db);
+    addSessionViewColumns(db);
     ensureProjectsForSessionPaths(db);
     db.exec(SCHEDULED_MESSAGES_TABLE_SCHEMA_SQL);
 

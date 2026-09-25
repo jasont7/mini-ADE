@@ -15,6 +15,10 @@ type SessionRow = {
   effort: string | null;
   /** The app session this one was branched from; NULL unless it is a fork. */
   forked_from_session_id: string | null;
+  /** Last time any client had this session on screen; NULL if never recorded. */
+  last_viewed_at: string | null;
+  /** Last time a run in this session finished; NULL if never recorded. */
+  last_completed_at: string | null;
   isArchived: number;
   created_at: string;
   updated_at: string;
@@ -26,7 +30,7 @@ type RecentSessionsPage = {
 };
 
 const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, forked_from_session_id, isArchived, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, model, effort, forked_from_session_id, last_viewed_at, last_completed_at, isArchived, created_at, updated_at';
 
 const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
@@ -57,6 +61,8 @@ function normalizeSessionRow<T extends SessionRow | null | undefined>(row: T): T
     ...row,
     created_at: normalizeTimestamp(row.created_at) ?? row.created_at,
     updated_at: normalizeTimestamp(row.updated_at) ?? row.updated_at,
+    last_viewed_at: normalizeTimestamp(row.last_viewed_at ?? undefined) ?? row.last_viewed_at ?? null,
+    last_completed_at: normalizeTimestamp(row.last_completed_at ?? undefined) ?? row.last_completed_at ?? null,
   };
 }
 
@@ -462,6 +468,26 @@ export const sessionsDb = {
        SET effort = ?
        WHERE session_id = ?`
     ).run(effort, sessionId);
+  },
+
+  /** Records that a client had the session on screen at `viewedAt` (ISO). */
+  markSessionViewed(sessionId: string, viewedAt: string): void {
+    const db = getConnection();
+    db.prepare(
+      `UPDATE sessions
+       SET last_viewed_at = ?
+       WHERE session_id = ?`
+    ).run(viewedAt, sessionId);
+  },
+
+  /** Records that a run in the session finished at `completedAt` (ISO). */
+  markSessionCompleted(sessionId: string, completedAt: string): void {
+    const db = getConnection();
+    db.prepare(
+      `UPDATE sessions
+       SET last_completed_at = ?
+       WHERE session_id = ?`
+    ).run(completedAt, sessionId);
   },
 
   updateSessionCustomName(sessionId: string, customName: string): void {

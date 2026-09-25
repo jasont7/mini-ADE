@@ -142,6 +142,12 @@ CREATE TABLE IF NOT EXISTS sessions (
     -- normally. Informational only: a fork is a fully independent provider
     -- session, and deleting the source does not affect it.
     forked_from_session_id TEXT,
+    -- When the session was last on screen for any client, and when a run in
+    -- it last finished. The sidebar derives "unread" (finished after the last
+    -- view) and "stale" (untouched for a day) from the pair, so every device
+    -- shows the same thing.
+    last_viewed_at DATETIME,
+    last_completed_at DATETIME,
     isArchived BOOLEAN DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,

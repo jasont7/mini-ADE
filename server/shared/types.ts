@@ -204,6 +204,7 @@ export type MessageKind =
 export type GatewayEventKind =
   | 'chat_subscribed'
   | 'session_upserted'
+  | 'session_view_state'
   | 'loading_progress'
   | 'protocol_error';
 
@@ -237,12 +238,28 @@ export type SessionUpsertedProject = {
  * showing has been merged into its canonical app-session row, so it is always
  * present — `null` only while the provider has not reported an id yet.
  */
+/**
+ * When a session was last on screen for any client and when a run in it last
+ * finished, as ISO strings or null. The sidebar derives its unread dot and its
+ * greying of untouched sessions from these, so every device agrees.
+ */
+export type SessionViewState = {
+  lastViewedAt: string | null;
+  lastCompletedAt: string | null;
+};
+
+/** A session's view state changed: someone opened or left it, or a run in it finished. */
+export type SessionViewStateEvent = SessionViewState & {
+  kind: 'session_view_state';
+  sessionId: string;
+};
+
 export type SessionUpsertedEvent = {
   kind: 'session_upserted';
   sessionId: string;
   providerSessionId: string | null;
   provider: LLMProvider;
-  session: {
+  session: SessionViewState & {
     id: string;
     summary: string;
     messageCount: number;

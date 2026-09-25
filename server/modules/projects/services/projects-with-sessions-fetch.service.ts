@@ -4,10 +4,10 @@ import path from 'node:path';
 import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
-import type { RealtimeClientConnection } from '@/shared/types.js';
+import type { RealtimeClientConnection, SessionViewState } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
 
-type SessionSummary = {
+type SessionSummary = SessionViewState & {
   id: string;
   provider: string;
   summary: string;
@@ -20,6 +20,8 @@ type SessionRepositoryRow = {
   session_id: string;
   custom_name?: string | null;
   updated_at?: string | null;
+  last_viewed_at?: string | null;
+  last_completed_at?: string | null;
   created_at?: string | null;
 };
 
@@ -124,6 +126,8 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     summary: row.custom_name || '',
     messageCount: 0,
     lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
+    lastViewedAt: row.last_viewed_at ?? null,
+    lastCompletedAt: row.last_completed_at ?? null,
   };
 }
 
