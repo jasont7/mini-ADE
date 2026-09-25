@@ -6,6 +6,7 @@ import path from 'path';
 import os from 'os';
 import http from 'http';
 
+import compression from 'compression';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 
@@ -134,6 +135,8 @@ app.use(express.json({
     }
 }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+// Gzip text responses: the client bundle is 2.8 MB raw, 0.8 MB gzipped.
+app.use(compression());
 
 // Public health check endpoint (no authentication required)
 app.get('/health', (req, res) => {
@@ -213,9 +216,13 @@ app.use(express.static(path.join(APP_ROOT, 'dist'), {
             res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
             res.setHeader('Pragma', 'no-cache');
             res.setHeader('Expires', '0');
-        } else if (filePath.match(/\.(js|css|woff2?|ttf|eot|svg|png|jpg|jpeg|gif|ico)$/)) {
-            // Cache static assets for 1 year (they have hashed names)
+        } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            // Cache built assets for 1 year (they have hashed names)
             res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else {
+            // Unhashed files (sw.js, mini-ade.js, icons) keep their name across
+            // builds, so a year-long cache would pin a browser to an old copy.
+            res.setHeader('Cache-Control', 'no-cache');
         }
     }
 }));
