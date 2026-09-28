@@ -171,6 +171,82 @@ test('a finished run\'s safety net cannot complete the session\'s next run', asy
   });
 });
 
+test('a completed run resumes when its process starts a turn on its own', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createAppSession('app-run-10', 'claude', '/workspace/demo');
+    const connection = new FakeConnection();
+    const run = chatRunRegistry.startRun({
+      appSessionId: 'app-run-10',
+      provider: 'claude',
+      providerSessionId: null,
+      connection,
+      userId: null,
+    });
+    assert.ok(run);
+
+    // Still running: nothing to resume.
+    assert.equal(run.writer.resumeRun(), false);
+
+    run.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'native-10', exitCode: 0 });
+    assert.equal(chatRunRegistry.isProcessing('app-run-10'), false);
+
+    // Background work reports back and the CLI starts another turn.
+    assert.equal(run.writer.resumeRun(), true);
+    assert.equal(chatRunRegistry.isProcessing('app-run-10'), true);
+    assert.deepEqual(
+      chatRunRegistry.listRunningRuns().map((running) => running.sessionId),
+      ['app-run-10'],
+    );
+    const resumed = connection.frames.filter((frame) => frame.kind === 'run_resumed');
+    assert.equal(resumed.length, 1);
+    assert.equal(resumed[0]?.sessionId, 'app-run-10');
+
+    // A second sender is refused while that turn runs...
+    assert.equal(chatRunRegistry.startRun({
+      appSessionId: 'app-run-10',
+      provider: 'claude',
+      providerSessionId: null,
+      connection,
+      userId: null,
+    }), null);
+
+    // ...and the turn ends with its own complete, which is not a duplicate.
+    run.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'native-10', exitCode: 0 });
+    assert.equal(connection.frames.filter((frame) => frame.kind === 'complete').length, 2);
+    assert.equal(chatRunRegistry.isProcessing('app-run-10'), false);
+  });
+});
+
+test('a run replaced by a newer one cannot resume', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createAppSession('app-run-11', 'claude', '/workspace/demo');
+    const connection = new FakeConnection();
+    const firstRun = chatRunRegistry.startRun({
+      appSessionId: 'app-run-11',
+      provider: 'claude',
+      providerSessionId: null,
+      connection,
+      userId: null,
+    });
+    assert.ok(firstRun);
+    firstRun.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'native-11', exitCode: 0 });
+
+    const secondRun = chatRunRegistry.startRun({
+      appSessionId: 'app-run-11',
+      provider: 'claude',
+      providerSessionId: null,
+      connection,
+      userId: null,
+    });
+    assert.ok(secondRun);
+    secondRun.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'native-11', exitCode: 0 });
+
+    assert.equal(firstRun.writer.resumeRun(), false);
+    assert.equal(chatRunRegistry.isProcessing('app-run-11'), false);
+    assert.equal(connection.frames.filter((frame) => frame.kind === 'run_resumed').length, 0);
+  });
+});
+
 test('listRunningRuns returns only currently running app sessions', async () => {
   await withIsolatedDatabase(() => {
     sessionsDb.createAppSession('app-run-7', 'claude', '/workspace/demo');

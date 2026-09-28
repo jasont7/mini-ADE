@@ -190,6 +190,7 @@ export type MessageKind =
   | 'permission_cancelled'
   | 'session_created'
   | 'history_truncated'
+  | 'run_resumed'
   | 'task_notification';
 
 /**

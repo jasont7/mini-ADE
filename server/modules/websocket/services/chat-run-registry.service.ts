@@ -63,7 +63,14 @@ const runs = new Map<string, ChatRun>();
 function evictRunLater(appSessionId: string): void {
   const timer = setTimeout(() => {
     const run = runs.get(appSessionId);
-    if (run && run.status === 'completed') {
+    // A resumed run completes more than once, and each completion arms its own
+    // timer. Only the timer for the latest completion may evict.
+    if (
+      run
+      && run.status === 'completed'
+      && run.completedAt !== null
+      && Date.now() - run.completedAt >= COMPLETED_RUN_RETENTION_MS
+    ) {
       runs.delete(appSessionId);
     }
   }, COMPLETED_RUN_RETENTION_MS);
@@ -161,6 +168,29 @@ function recordProviderSessionId(run: ChatRun, providerSessionId: string): void 
 }
 
 /**
+ * Puts a completed run back into `running` because its provider started
+ * another turn on its own.
+ *
+ * Claude reports `complete` when a turn's `result` lands, but a process holding
+ * background work (a background agent or shell, a Monitor, a wake-up) starts a
+ * fresh turn when that work reports back. Without this the run stays
+ * `completed` while that turn streams: clients show the session as idle, and a
+ * message sent then is admitted as a new run and pushed into the busy process.
+ *
+ * Only the session's current run can resume. A run already replaced by a newer
+ * one belongs to a process that no longer speaks for the session.
+ */
+function resumeRun(run: ChatRun): boolean {
+  if (runs.get(run.appSessionId) !== run || run.status !== 'completed') {
+    return false;
+  }
+
+  run.status = 'running';
+  run.completedAt = null;
+  return true;
+}
+
+/**
  * Registry of live provider runs keyed by the stable app session id.
  *
  * The registry is what makes the websocket protocol provider-independent:
@@ -212,6 +242,7 @@ export const chatRunRegistry = {
         recordProviderSessionId(run, providerSessionId);
       },
       decorateOutboundEvent: (message) => decorateAndRecordEvent(run, message),
+      resumeRun: () => resumeRun(run),
     });
 
     runs.set(input.appSessionId, run);

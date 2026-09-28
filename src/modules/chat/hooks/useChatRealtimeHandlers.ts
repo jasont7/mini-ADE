@@ -123,6 +123,15 @@ export function useChatRealtimeHandlers({
           return;
         }
 
+        case 'run_resumed':
+          // The run already reported `complete`, but its process started
+          // another turn on its own (background work reporting back). Busy
+          // again until that turn's own `complete`.
+          if (sid) {
+            onSessionProcessing?.(sid);
+          }
+          return;
+
         case 'chat_subscribed': {
           // Ack for chat.subscribe: authoritative processing state plus any
           // pending tool-permission prompts for the run.
@@ -159,7 +168,11 @@ export function useChatRealtimeHandlers({
           if (sid) {
             // Surface the failure in the conversation and stop the spinner —
             // the run never started (or was rejected), so no `complete` follows.
-            onSessionIdle?.(sid);
+            // Except when it was rejected because a run is already going: that
+            // run still ends with its own `complete`.
+            if (msg.code !== 'RUN_IN_PROGRESS') {
+              onSessionIdle?.(sid);
+            }
             sessionStore.appendRealtime(sid, {
               id: `protocol_error_${Date.now()}`,
               sessionId: sid,

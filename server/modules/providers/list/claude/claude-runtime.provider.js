@@ -596,6 +596,18 @@ function startsBackgroundWork(sdkMessage) {
 }
 
 /**
+ * Detects main-thread model output. After a turn has reported `complete`, this
+ * means the CLI started another turn on its own: background work (an agent, a
+ * shell, a Monitor, a wake-up) reported back as a queued prompt. Subagent
+ * traffic carries a parent_tool_use_id, and system frames such as task
+ * progress are not a turn.
+ */
+function isMainThreadOutput(sdkMessage) {
+  return (sdkMessage?.type === 'assistant' || sdkMessage?.type === 'stream_event')
+    && !sdkMessage.parent_tool_use_id;
+}
+
+/**
  * Builds the SDK user messages for one turn.
  *
  * Always returns SDKUserMessage records rather than a bare string: a string
@@ -785,6 +797,9 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
   // The client is told the turn is over as soon as `result` lands, even though
   // the process lingers, so the UI never waits out the idle hold.
   let turnCompleteSent = false;
+  // True while a turn the CLI started on its own is running, so its `result`
+  // reports background work finishing rather than the user's turn stopping.
+  let autonomousTurn = false;
   // Set when a turn starts background work, cleared when the next `result`
   // arrives — only turns with work still outstanding hold their process open.
   let backgroundWorkPending = false;
@@ -852,6 +867,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     // the process has not seen the message yet.
     currentWriter = nextWs;
     turnCompleteSent = false;
+    autonomousTurn = false;
     assistantBudgetSent = false;
     heldForBackgroundWork = false;
     if (idleReleaseTimer) {
@@ -1055,6 +1071,20 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
         // session_id already captured
       }
 
+      // A turn nobody sent. Reopen the run so clients show the session busy
+      // (and queue what the user types instead of pushing it into this turn),
+      // then end it with a normal `complete` at its `result`.
+      if (
+        turnCompleteSent
+        && isMainThreadOutput(message)
+        && !supersededInstances.has(queryInstance)
+        && !(sessionKey() && abortedSessionIds.has(sessionKey()))
+        && ws?.resumeRun?.()
+      ) {
+        turnCompleteSent = false;
+        autonomousTurn = true;
+      }
+
       // Transform and normalize message via adapter
       const transformedMessage = transformMessage(message);
       const sid = capturedSessionId || sessionId || null;
@@ -1095,16 +1125,26 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
           turnCompleteSent = true;
           ws.send(createCompleteMessage({ provider: 'claude', sessionId: capturedSessionId || sessionId || null, exitCode: 0 }));
           settleTurns();
-          notifyRunStopped({
-            userId: ws?.userId || null,
-            provider: 'claude',
-            sessionId: sessionId || capturedSessionId || null,
-            sessionName: sessionSummary,
-            stopReason: 'completed'
-          });
+          if (autonomousTurn) {
+            notifyBackgroundWorkCompleted({
+              userId: ws?.userId || null,
+              provider: 'claude',
+              sessionId: sessionId || capturedSessionId || null,
+              sessionName: sessionSummary
+            });
+          } else {
+            notifyRunStopped({
+              userId: ws?.userId || null,
+              provider: 'claude',
+              sessionId: sessionId || capturedSessionId || null,
+              sessionName: sessionSummary,
+              stopReason: 'completed'
+            });
+          }
         } else if (heldForBackgroundWork && !abortPending) {
           // A result after the turn already reported complete means the work we
-          // held the process open for has finished and pushed a follow-up turn.
+          // held the process open for has finished and pushed a follow-up turn
+          // (one the run could not be reopened for).
           notifyBackgroundWorkCompleted({
             userId: ws?.userId || null,
             provider: 'claude',
@@ -1112,6 +1152,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
             sessionName: sessionSummary
           });
         }
+        autonomousTurn = false;
         if (backgroundWorkPending) {
           // Work started during this turn is still running. Hold the process
           // open so it can finish and report back in a follow-up turn; the

@@ -4,7 +4,7 @@ import type {
   NormalizedMessage,
   RealtimeClientConnection,
 } from '@/shared/types.js';
-import { createCompleteMessage, readObjectRecord } from '@/shared/utils.js';
+import { createCompleteMessage, createNormalizedMessage, readObjectRecord } from '@/shared/utils.js';
 
 type ChatSessionWriterOptions = {
   connection: RealtimeClientConnection | null;
@@ -25,6 +25,11 @@ type ChatSessionWriterOptions = {
    * `complete` after an abort already completed the run).
    */
   decorateOutboundEvent: (message: NormalizedMessage) => NormalizedMessage | null;
+  /**
+   * Reopens the completed run this writer belongs to. Returns false when the
+   * run is still running or has been replaced by a newer run for the session.
+   */
+  resumeRun: () => boolean;
 };
 
 /**
@@ -129,6 +134,29 @@ export class ChatSessionWriter {
     if (outbound) {
       this.forward(outbound);
     }
+  }
+
+  /**
+   * Called by a runtime whose process starts a turn nobody sent, after this
+   * run already reported `complete`. Reopens the run and tells every watching
+   * client the session is busy again; the runtime then ends that turn with a
+   * normal `complete`. Returns false when the run could not be reopened, in
+   * which case the runtime must not send another `complete` either.
+   */
+  resumeRun(): boolean {
+    if (!this.options.resumeRun()) {
+      return false;
+    }
+
+    const outbound = this.options.decorateOutboundEvent(createNormalizedMessage({
+      kind: 'run_resumed',
+      provider: this.options.provider,
+      sessionId: this.providerSessionId,
+    }));
+    if (outbound) {
+      this.forward(outbound);
+    }
+    return true;
   }
 
   /**
