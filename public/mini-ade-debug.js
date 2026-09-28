@@ -79,6 +79,58 @@
     }
   };
 
+  // --- chat websocket -----------------------------------------------------
+  // Session opens (chat.subscribe) and sends (chat.send) travel over /ws, not
+  // fetch. This script can load after the app has already opened its socket,
+  // so the existing socket is picked up on its first send via the prototype,
+  // and later sockets (reconnects) through the constructor.
+  var sid8 = function (v) { return typeof v === 'string' ? v.slice(0, 8) : '-'; };
+  var watched = typeof WeakSet !== 'undefined' ? new WeakSet() : null;
+  function watch(ws, how) {
+    if (!watched || watched.has(ws) || !/\/ws(\?|$)/.test(ws.url || '')) { return; }
+    watched.add(ws);
+    push('ws ' + how + ' state=' + ws.readyState);
+    ws.addEventListener('open', function () { push('ws OPEN'); });
+    ws.addEventListener('close', function (e) { push('ws CLOSE code=' + e.code); });
+    ws.addEventListener('message', function (e) {
+      var m;
+      try { m = JSON.parse(e.data); } catch (err) { return; }
+      var k = m && m.kind;
+      if (k === 'chat_subscribed') {
+        push('ws <- chat_subscribed ' + sid8(m.sessionId) + ' processing=' + m.isProcessing);
+      } else if (k === 'complete' || k === 'run_resumed' || k === 'protocol_error') {
+        push('ws <- ' + k + ' ' + sid8(m.sessionId) + (m.code ? ' ' + m.code : ''));
+      }
+    });
+  }
+  var OrigWS = window.WebSocket;
+  if (OrigWS) {
+    var origSend = OrigWS.prototype.send;
+    OrigWS.prototype.send = function (data) {
+      watch(this, 'seen');
+      try {
+        var m = JSON.parse(data);
+        var ids = m.sessionId || (m.sessions && m.sessions.map(function (s) { return sid8(s.sessionId); }).join(','));
+        push('ws -> ' + m.type + ' ' + sid8(ids) + ' state=' + this.readyState);
+      } catch (e) {}
+      return origSend.apply(this, arguments);
+    };
+    var WrappedWS = function (url, protocols) {
+      var ws = protocols === undefined ? new OrigWS(url) : new OrigWS(url, protocols);
+      watch(ws, 'NEW');
+      return ws;
+    };
+    WrappedWS.prototype = OrigWS.prototype;
+    ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach(function (k) { WrappedWS[k] = OrigWS[k]; });
+    window.WebSocket = WrappedWS;
+  }
+  // The app's sendMessage drops a message silently apart from this warning.
+  var origWarn = console.warn;
+  console.warn = function () {
+    if (String(arguments[0]).indexOf('WebSocket') !== -1) { push('WARN ' + String(arguments[0]).slice(0, 80)); }
+    return origWarn.apply(console, arguments);
+  };
+
   // --- render heartbeat ---------------------------------------------------
   // A freeze shows up as a gap between consecutive beats.
   var lastBeat = Date.now();
