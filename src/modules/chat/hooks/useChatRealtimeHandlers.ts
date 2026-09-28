@@ -185,8 +185,11 @@ export function useChatRealtimeHandlers({
           return;
         }
 
-        // Sidebar/global events — owned by useProjectsState.
+        // Sidebar/global events — owned by useProjectsState. They carry a
+        // sessionId but are not transcript rows: routed into the store below,
+        // an id-less row breaks every later merge for that session.
         case 'session_upserted':
+        case 'session_view_state':
         case 'loading_progress':
           return;
 
