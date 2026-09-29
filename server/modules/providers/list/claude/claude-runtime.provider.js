@@ -595,6 +595,40 @@ function startsBackgroundWork(sdkMessage) {
   });
 }
 
+// Terminal states a background task reports through `task_updated`.
+// `task_notification` is terminal whatever its status.
+const FINISHED_TASK_STATUSES = new Set(['completed', 'failed', 'killed', 'stopped']);
+
+/**
+ * Keeps `runningTaskIds` in step with the background tasks (shells, agents,
+ * monitors) the CLI reports as running.
+ *
+ * The hold on stdin has to follow these across turns, not just the turn that
+ * started them. A follow-up message delivered to the live process ends its own
+ * turn without starting anything; releasing stdin then puts the CLI into
+ * wind-down, which kills the earlier turn's shell, and the next message resumes
+ * with "Background shell command didn't finish before the previous session
+ * ended".
+ *
+ * Exported for claude-background-tasks.test.ts; the runtime is its only caller.
+ *
+ * @param {Object} sdkMessage - SDK stream message
+ * @param {Set<string>} runningTaskIds - Task ids still running, updated in place
+ */
+export function trackBackgroundTasks(sdkMessage, runningTaskIds) {
+  if (sdkMessage?.type !== 'system' || typeof sdkMessage.task_id !== 'string') {
+    return;
+  }
+  if (sdkMessage.subtype === 'task_started') {
+    runningTaskIds.add(sdkMessage.task_id);
+  } else if (
+    sdkMessage.subtype === 'task_notification'
+    || (sdkMessage.subtype === 'task_updated' && FINISHED_TASK_STATUSES.has(sdkMessage.patch?.status))
+  ) {
+    runningTaskIds.delete(sdkMessage.task_id);
+  }
+}
+
 /**
  * Detects main-thread model output. After a turn has reported `complete`, this
  * means the CLI started another turn on its own: background work (an agent, a
@@ -801,8 +835,11 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
   // reports background work finishing rather than the user's turn stopping.
   let autonomousTurn = false;
   // Set when a turn starts background work, cleared when the next `result`
-  // arrives — only turns with work still outstanding hold their process open.
+  // arrives. Covers deferred work that reports no task events (wake-ups, crons).
   let backgroundWorkPending = false;
+  // Background tasks still running, whichever turn started them. Lives for the
+  // whole process, so follow-up turns see work from earlier ones.
+  const runningTaskIds = new Set();
   // True while the process is being held open for background work, so a later
   // `result` can be recognised as that work reporting back.
   let heldForBackgroundWork = false;
@@ -1117,6 +1154,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       if (startsBackgroundWork(message)) {
         backgroundWorkPending = true;
       }
+      trackBackgroundTasks(message, runningTaskIds);
 
       if (message.type === 'result') {
         // The turn is done as far as the client is concerned.
@@ -1153,16 +1191,17 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
           });
         }
         autonomousTurn = false;
-        if (backgroundWorkPending) {
-          // Work started during this turn is still running. Hold the process
-          // open so it can finish and report back in a follow-up turn; the
-          // ceiling is only a backstop for work that never reports.
+        if (backgroundWorkPending || runningTaskIds.size > 0) {
+          // Work started during this turn or an earlier one is still running.
+          // Hold the process open so it can finish and report back in a
+          // follow-up turn; the ceiling is only a backstop for work that never
+          // reports.
           backgroundWorkPending = false;
           heldForBackgroundWork = true;
           scheduleRelease();
         } else {
-          // Either nothing was backgrounded, or the background work just
-          // reported in — let the CLI exit now, as it always has.
+          // Nothing is running in the background any more — let the CLI exit
+          // now, as it always has.
           heldForBackgroundWork = false;
           releasePromptStream();
         }
