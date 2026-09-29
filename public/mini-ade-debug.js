@@ -7,7 +7,7 @@
 // stalls visible as time gaps, errors, and scroll writes.
 (function () {
   try {
-  var MAX = 150;
+  var MAX = 400;
   var KEY = 'miniAdeLog';
   var PREV_KEY = 'miniAdeLogPrev';
   var t0 = Date.now();
@@ -130,6 +130,97 @@
     if (String(arguments[0]).indexOf('WebSocket') !== -1) { push('WARN ' + String(arguments[0]).slice(0, 80)); }
     return origWarn.apply(console, arguments);
   };
+
+  // --- transcript scroll ----------------------------------------------------
+  // Mobile Safari has no scroll anchoring, so the reader moves when code writes
+  // scrollTop or when content above the viewport changes height. Log both:
+  // every write with the call site, and every scrollHeight change seen.
+  function isChat(el) {
+    return !!(el && el.classList && el.classList.contains('chat-messages-pane'));
+  }
+  function pos(el) {
+    return Math.round(el.scrollTop) + '/' + Math.round(el.scrollHeight - el.clientHeight);
+  }
+  // Minified frames give line:col into the hashed bundle, which maps back to source.
+  function where() {
+    var lines = (new Error().stack || '').split('\n').slice(2, 6);
+    return lines.map(function (l) {
+      var m = l.match(/([\w-]+\.js):(\d+):(\d+)/);
+      return m ? m[1].slice(0, 14) + ':' + m[2] + ':' + m[3] : l.trim().slice(0, 50);
+    }).join(' < ');
+  }
+  var lastHeight = new WeakMap();
+  function heightCheck(el, why) {
+    var h = el.scrollHeight;
+    var was = lastHeight.get(el);
+    lastHeight.set(el, h);
+    if (was !== undefined && was !== h) {
+      push('HEIGHT ' + was + '->' + h + ' (d' + (h - was) + ') at ' + pos(el) + ' ' + why);
+    }
+  }
+  var desc = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+  if (desc && desc.set) {
+    Object.defineProperty(Element.prototype, 'scrollTop', {
+      configurable: true,
+      get: function () { return desc.get.call(this); },
+      set: function (value) {
+        if (isChat(this)) {
+          var from = Math.round(desc.get.call(this));
+          push('SET ' + pos(this) + ' -> ' + Math.round(value) + ' (d' + (Math.round(value) - from) + ') ' + where());
+        }
+        desc.set.call(this, value);
+      },
+    });
+  }
+  ['scrollTo', 'scrollBy'].forEach(function (name) {
+    var orig = Element.prototype[name];
+    if (!orig) { return; }
+    Element.prototype[name] = function (opts) {
+      if (isChat(this)) { push(name.toUpperCase() + ' ' + pos(this) + ' ' + JSON.stringify(opts) + ' ' + where()); }
+      return orig.apply(this, arguments);
+    };
+  });
+  var intoView = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function () {
+    var host = this.closest && this.closest('.chat-messages-pane');
+    if (host) { push('INTOVIEW ' + pos(host) + ' ' + where()); }
+    return intoView.apply(this, arguments);
+  };
+  var lastScroll = 0;
+  document.addEventListener('scroll', function (e) {
+    var el = e.target;
+    if (!el || el.nodeType !== 1 || !isChat(el)) { return; }
+    heightCheck(el, 'on scroll');
+    if (Date.now() - lastScroll > 150) {
+      lastScroll = Date.now();
+      push('scroll ' + pos(el) + ' h=' + el.scrollHeight);
+    }
+  }, { capture: true, passive: true });
+  // Height changes that happen with no scroll event (images loading, rows
+  // expanding, a message re-rendering) still move the reader in Safari.
+  if (window.ResizeObserver) {
+    var observed = null;
+    var ro = new ResizeObserver(function () {
+      if (observed && observed.parentElement) { heightCheck(observed.parentElement, 'resize'); }
+    });
+    setInterval(function () {
+      var pane = document.querySelector('.chat-messages-pane');
+      var el = pane && pane.lastElementChild;
+      if (el && el !== observed) {
+        if (observed) { ro.unobserve(observed); }
+        observed = el;
+        ro.observe(el);
+        push('watching transcript h=' + el.parentElement.scrollHeight);
+      }
+    }, 1000);
+  }
+  // Touch boundaries, so jumps can be placed inside or outside a gesture.
+  ['touchstart', 'touchend'].forEach(function (type) {
+    document.addEventListener(type, function (e) {
+      var el = e.target && e.target.closest && e.target.closest('.chat-messages-pane');
+      if (el) { push(type + ' ' + pos(el)); }
+    }, { capture: true, passive: true });
+  });
 
   // --- render heartbeat ---------------------------------------------------
   // A freeze shows up as a gap between consecutive beats.
