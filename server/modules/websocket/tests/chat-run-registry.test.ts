@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import { closeConnection, initializeDatabase, sessionsDb } from '@/modules/database/index.js';
 import { chatRunRegistry } from '@/modules/websocket/services/chat-run-registry.service.js';
@@ -281,6 +281,77 @@ test('background tasks are remembered per session and survive the run completing
 
     secondRun.writer.send({ kind: 'background_tasks', provider: 'claude', sessionId: 'native-12', backgroundTasks: [] });
     assert.deepEqual(chatRunRegistry.getBackgroundTasks('app-run-12'), []);
+  });
+});
+
+test('a run evicted while completed still resumes when its process starts a turn', async () => {
+  await withIsolatedDatabase(() => {
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    try {
+      sessionsDb.createAppSession('app-run-13', 'claude', '/workspace/demo');
+      const connection = new FakeConnection();
+      const run = chatRunRegistry.startRun({
+        appSessionId: 'app-run-13',
+        provider: 'claude',
+        providerSessionId: null,
+        connection,
+        userId: null,
+      });
+      assert.ok(run);
+      const tasks = [{ id: 'bcq8te2rg', description: 'Train the model on fal' }];
+      run.writer.send({ kind: 'background_tasks', provider: 'claude', sessionId: 'native-13', backgroundTasks: tasks });
+      run.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'native-13', exitCode: 0 });
+
+      // The training job reports back well after the retention window.
+      mock.timers.tick(8 * 60 * 1000);
+      assert.equal(chatRunRegistry.getRun('app-run-13'), undefined);
+
+      assert.equal(run.writer.resumeRun(), true);
+      assert.equal(chatRunRegistry.isProcessing('app-run-13'), true);
+      assert.deepEqual(chatRunRegistry.listRunningRuns().map((running) => running.sessionId), ['app-run-13']);
+
+      // The evicted run still speaks for the session's task list too.
+      run.writer.send({ kind: 'background_tasks', provider: 'claude', sessionId: 'native-13', backgroundTasks: [] });
+      assert.deepEqual(chatRunRegistry.getBackgroundTasks('app-run-13'), []);
+
+      run.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'native-13', exitCode: 0 });
+      assert.equal(chatRunRegistry.isProcessing('app-run-13'), false);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+});
+
+test('an evicted run cannot resume once a newer run has started', async () => {
+  await withIsolatedDatabase(() => {
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    try {
+      sessionsDb.createAppSession('app-run-14', 'claude', '/workspace/demo');
+      const connection = new FakeConnection();
+      const start = () => chatRunRegistry.startRun({
+        appSessionId: 'app-run-14',
+        provider: 'claude',
+        providerSessionId: null,
+        connection,
+        userId: null,
+      });
+      const firstRun = start();
+      assert.ok(firstRun);
+      firstRun.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'native-14', exitCode: 0 });
+      mock.timers.tick(8 * 60 * 1000);
+
+      const secondRun = start();
+      assert.ok(secondRun);
+      secondRun.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'native-14', exitCode: 0 });
+      mock.timers.tick(8 * 60 * 1000);
+
+      // Both evicted; only the newer one may come back.
+      assert.equal(firstRun.writer.resumeRun(), false);
+      assert.equal(chatRunRegistry.isProcessing('app-run-14'), false);
+      assert.equal(secondRun.writer.resumeRun(), true);
+    } finally {
+      mock.timers.reset();
+    }
   });
 });
 

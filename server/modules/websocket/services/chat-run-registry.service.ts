@@ -35,6 +35,8 @@ type ChatRun = {
   writer: ChatSessionWriter;
   startedAt: number;
   completedAt: number | null;
+  /** Position in the session's sequence of runs. See `currentGenerationBySession`. */
+  generation: number;
 };
 
 /**
@@ -60,6 +62,22 @@ const MAX_BUFFERED_EVENTS_PER_RUN = 5000;
  * path all consult it instead of asking each provider runtime individually.
  */
 const runs = new Map<string, ChatRun>();
+
+/**
+ * Which run currently speaks for each session, by generation.
+ *
+ * `runs` cannot answer that on its own: a completed run is evicted after
+ * COMPLETED_RUN_RETENTION_MS, but its process can keep going far longer (a
+ * background job that reports back after ten minutes and starts a turn). This
+ * map is never evicted, and a number per session costs nothing to keep.
+ */
+const currentGenerationBySession = new Map<string, number>();
+let lastGeneration = 0;
+
+/** True while no newer run has started for the run's session, evicted or not. */
+function isCurrentRun(run: ChatRun): boolean {
+  return currentGenerationBySession.get(run.appSessionId) === run.generation;
+}
 
 /**
  * Background tasks each session's provider process last reported as running,
@@ -110,7 +128,7 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
 
   // Only the session's current run speaks for its process. A replaced run's
   // wind-down must not clear the list the newer process has published.
-  if (message.kind === 'background_tasks' && runs.get(run.appSessionId) === run) {
+  if (message.kind === 'background_tasks' && isCurrentRun(run)) {
     const tasks = Array.isArray(message.backgroundTasks) ? message.backgroundTasks : [];
     if (tasks.length > 0) {
       backgroundTasksBySession.set(run.appSessionId, tasks);
@@ -199,13 +217,16 @@ function recordProviderSessionId(run: ChatRun, providerSessionId: string): void 
  * message sent then is admitted as a new run and pushed into the busy process.
  *
  * Only the session's current run can resume. A run already replaced by a newer
- * one belongs to a process that no longer speaks for the session.
+ * one belongs to a process that no longer speaks for the session. A current run
+ * that was evicted while it sat completed is put back, since background work
+ * routinely reports back after the retention window.
  */
 function resumeRun(run: ChatRun): boolean {
-  if (runs.get(run.appSessionId) !== run || run.status !== 'completed') {
+  if (!isCurrentRun(run) || run.status !== 'completed') {
     return false;
   }
 
+  runs.set(run.appSessionId, run);
   run.status = 'running';
   run.completedAt = null;
   return true;
@@ -252,6 +273,7 @@ export const chatRunRegistry = {
       writer: null as unknown as ChatSessionWriter,
       startedAt: Date.now(),
       completedAt: null,
+      generation: ++lastGeneration,
     };
 
     run.writer = new ChatSessionWriter({
@@ -267,6 +289,7 @@ export const chatRunRegistry = {
     });
 
     runs.set(input.appSessionId, run);
+    currentGenerationBySession.set(input.appSessionId, run.generation);
     return run;
   },
 
@@ -375,6 +398,7 @@ export const chatRunRegistry = {
    */
   clearAll(): void {
     runs.clear();
+    currentGenerationBySession.clear();
     backgroundTasksBySession.clear();
   },
 };
