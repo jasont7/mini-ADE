@@ -3,6 +3,7 @@ import { ChatSessionWriter } from '@/modules/websocket/services/chat-session-wri
 import { broadcastSessionUpserted } from '@/modules/websocket/services/session-upsert-broadcast.service.js';
 import { sessionViewStateService } from '@/modules/websocket/services/session-view-state.service.js';
 import type {
+  BackgroundTaskSummary,
   LLMProvider,
   NormalizedMessage,
   RealtimeClientConnection,
@@ -60,6 +61,15 @@ const MAX_BUFFERED_EVENTS_PER_RUN = 5000;
  */
 const runs = new Map<string, ChatRun>();
 
+/**
+ * Background tasks each session's provider process last reported as running,
+ * so a client opening the session learns about them from `chat_subscribed`.
+ *
+ * Kept apart from `runs` on purpose: a completed run is evicted after a few
+ * minutes, while a background shell can run for hours.
+ */
+const backgroundTasksBySession = new Map<string, BackgroundTaskSummary[]>();
+
 function evictRunLater(appSessionId: string): void {
   const timer = setTimeout(() => {
     const run = runs.get(appSessionId);
@@ -96,6 +106,17 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
   // Whichever arrives first wins; the duplicate is dropped here.
   if (message.kind === 'complete' && run.status === 'completed') {
     return null;
+  }
+
+  // Only the session's current run speaks for its process. A replaced run's
+  // wind-down must not clear the list the newer process has published.
+  if (message.kind === 'background_tasks' && runs.get(run.appSessionId) === run) {
+    const tasks = Array.isArray(message.backgroundTasks) ? message.backgroundTasks : [];
+    if (tasks.length > 0) {
+      backgroundTasksBySession.set(run.appSessionId, tasks);
+    } else {
+      backgroundTasksBySession.delete(run.appSessionId);
+    }
   }
 
   run.lastSeq += 1;
@@ -274,6 +295,14 @@ export const chatRunRegistry = {
   },
 
   /**
+   * Background tasks the session's provider process still has running, for
+   * the `chat_subscribed` ack. Empty when none are known.
+   */
+  getBackgroundTasks(appSessionId: string): BackgroundTaskSummary[] {
+    return backgroundTasksBySession.get(appSessionId) ?? [];
+  },
+
+  /**
    * Adds a websocket connection to a run's live audience.
    *
    * This is the generic replacement for the Claude-only writer reconnect:
@@ -346,5 +375,6 @@ export const chatRunRegistry = {
    */
   clearAll(): void {
     runs.clear();
+    backgroundTasksBySession.clear();
   },
 };

@@ -600,33 +600,39 @@ function startsBackgroundWork(sdkMessage) {
 const FINISHED_TASK_STATUSES = new Set(['completed', 'failed', 'killed', 'stopped']);
 
 /**
- * Keeps `runningTaskIds` in step with the background tasks (shells, agents,
- * monitors) the CLI reports as running.
+ * Keeps `runningTasks` in step with the background tasks (shells, agents,
+ * monitors) the CLI reports as running, and reports whether the set changed.
  *
  * The hold on stdin has to follow these across turns, not just the turn that
  * started them. A follow-up message delivered to the live process ends its own
  * turn without starting anything; releasing stdin then puts the CLI into
  * wind-down, which kills the earlier turn's shell, and the next message resumes
  * with "Background shell command didn't finish before the previous session
- * ended".
+ * ended". A command that outlives its timeout is moved to the background by the
+ * CLI itself, with no `run_in_background` in its input, so only these events
+ * catch it.
  *
  * Exported for claude-background-tasks.test.ts; the runtime is its only caller.
  *
  * @param {Object} sdkMessage - SDK stream message
- * @param {Set<string>} runningTaskIds - Task ids still running, updated in place
+ * @param {Map<string, string>} runningTasks - Task id to description, updated in place
+ * @returns {boolean} True when a task started or ended
  */
-export function trackBackgroundTasks(sdkMessage, runningTaskIds) {
+export function trackBackgroundTasks(sdkMessage, runningTasks) {
   if (sdkMessage?.type !== 'system' || typeof sdkMessage.task_id !== 'string') {
-    return;
+    return false;
   }
   if (sdkMessage.subtype === 'task_started') {
-    runningTaskIds.add(sdkMessage.task_id);
-  } else if (
+    runningTasks.set(sdkMessage.task_id, typeof sdkMessage.description === 'string' ? sdkMessage.description : '');
+    return true;
+  }
+  if (
     sdkMessage.subtype === 'task_notification'
     || (sdkMessage.subtype === 'task_updated' && FINISHED_TASK_STATUSES.has(sdkMessage.patch?.status))
   ) {
-    runningTaskIds.delete(sdkMessage.task_id);
+    return runningTasks.delete(sdkMessage.task_id);
   }
+  return false;
 }
 
 /**
@@ -837,9 +843,20 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
   // Set when a turn starts background work, cleared when the next `result`
   // arrives. Covers deferred work that reports no task events (wake-ups, crons).
   let backgroundWorkPending = false;
-  // Background tasks still running, whichever turn started them. Lives for the
-  // whole process, so follow-up turns see work from earlier ones.
-  const runningTaskIds = new Set();
+  // Background tasks still running (id to description), whichever turn
+  // started them. Lives for the whole process, so follow-up turns see work
+  // from earlier ones.
+  const runningTasks = new Map();
+  // Tells clients which background tasks are still running, so the composer
+  // can show work going on while the session is otherwise idle.
+  const sendBackgroundTasks = () => {
+    ws?.send(createNormalizedMessage({
+      kind: 'background_tasks',
+      backgroundTasks: [...runningTasks].map(([id, description]) => ({ id, description })),
+      sessionId: capturedSessionId || sessionId || null,
+      provider: 'claude'
+    }));
+  };
   // True while the process is being held open for background work, so a later
   // `result` can be recognised as that work reporting back.
   let heldForBackgroundWork = false;
@@ -1154,7 +1171,9 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       if (startsBackgroundWork(message)) {
         backgroundWorkPending = true;
       }
-      trackBackgroundTasks(message, runningTaskIds);
+      if (trackBackgroundTasks(message, runningTasks)) {
+        sendBackgroundTasks();
+      }
 
       if (message.type === 'result') {
         // The turn is done as far as the client is concerned.
@@ -1191,7 +1210,7 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
           });
         }
         autonomousTurn = false;
-        if (backgroundWorkPending || runningTaskIds.size > 0) {
+        if (backgroundWorkPending || runningTasks.size > 0) {
           // Work started during this turn or an earlier one is still running.
           // Hold the process open so it can finish and report back in a
           // follow-up turn; the ceiling is only a backstop for work that never
@@ -1286,6 +1305,11 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
       error
     });
   } finally {
+    // The process is gone, and its background tasks with it.
+    if (runningTasks.size > 0) {
+      runningTasks.clear();
+      sendBackgroundTasks();
+    }
     // Always close stdin — otherwise an aborted or failed run leaves the CLI
     // process (and its MCP servers) alive until the server exits.
     if (idleReleaseTimer) {

@@ -1,13 +1,21 @@
 import { useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 
-import type { ServerEvent,MarkSessionIdle,MarkSessionProcessing,PendingPermissionRequest,ProjectSession,LLMProvider,NormalizedMessage } from '@/shared/types';
+import type { BackgroundTask,ServerEvent,MarkSessionIdle,MarkSessionProcessing,PendingPermissionRequest,ProjectSession,LLMProvider,NormalizedMessage } from '@/shared/types';
 import { showCompletionTitleIndicator } from '@/modules/chat/utils/pageTitleNotification';
 import { playChatCompletionSound, playNotificationSound } from '@/shared/utils';
 import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
 
 const isActionablePermissionRequest = (request: { toolName?: unknown } | null | undefined): boolean => {
   return request?.toolName !== 'ExitPlanMode' && request?.toolName !== 'exit_plan_mode';
+};
+
+// Server-supplied task lists are trusted for shape only as far as rendering needs.
+const readBackgroundTasks = (value: unknown): BackgroundTask[] | null => {
+  if (!Array.isArray(value)) return null;
+  return value
+    .filter((task): task is { id: string; description?: unknown } => typeof task?.id === 'string')
+    .map((task) => ({ id: task.id, description: typeof task.description === 'string' ? task.description : '' }));
 };
 
 const hasActionablePermissionRequests = (requests: Array<{ toolName?: unknown }> | null | undefined): boolean => {
@@ -36,6 +44,8 @@ type UseChatRealtimeHandlersArgs = {
   statusCheckSentAtRef: MutableRefObject<Map<string, number>>;
   onSessionProcessing?: MarkSessionProcessing;
   onSessionIdle?: MarkSessionIdle;
+  /** Replaces a session's list of still-running background tasks. */
+  onBackgroundTasks?: (sessionId: string, tasks: BackgroundTask[]) => void;
   onWebSocketReconnect?: () => void;
   requestLatestMessages: (sessionId: string, allowNetwork?: boolean) => Promise<void>;
   sessionStore: SessionStore;
@@ -69,6 +79,7 @@ export function useChatRealtimeHandlers({
   statusCheckSentAtRef,
   onSessionProcessing,
   onSessionIdle,
+  onBackgroundTasks,
   onWebSocketReconnect,
   requestLatestMessages,
   sessionStore,
@@ -132,6 +143,16 @@ export function useChatRealtimeHandlers({
           }
           return;
 
+        case 'background_tasks': {
+          // Not a transcript row: the composer shows these while the session
+          // is idle but its process still has work running.
+          const tasks = readBackgroundTasks(msg.backgroundTasks);
+          if (sid && tasks) {
+            onBackgroundTasks?.(sid, tasks);
+          }
+          return;
+        }
+
         case 'chat_subscribed': {
           // Ack for chat.subscribe: authoritative processing state plus any
           // pending tool-permission prompts for the run.
@@ -145,6 +166,11 @@ export function useChatRealtimeHandlers({
             onSessionIdle?.(sid, {
               ifStartedBefore: statusCheckSentAtRef.current.get(sid),
             });
+          }
+
+          const subscribedBackgroundTasks = readBackgroundTasks(msg.backgroundTasks);
+          if (subscribedBackgroundTasks) {
+            onBackgroundTasks?.(sid, subscribedBackgroundTasks);
           }
 
           const isViewedSession = sid === activeViewSessionId;
@@ -380,6 +406,7 @@ export function useChatRealtimeHandlers({
     statusCheckSentAtRef,
     onSessionProcessing,
     onSessionIdle,
+    onBackgroundTasks,
     onWebSocketReconnect,
     requestLatestMessages,
     sessionStore,

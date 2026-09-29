@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowDownIcon } from 'lucide-react';
 
@@ -8,6 +8,7 @@ import PermissionContext from '@/modules/chat/context/PermissionContext';
 import { MarkdownWorkspaceContext } from '@/modules/chat/context/MarkdownWorkspaceContext';
 import { api } from '@/shared/api';
 import type {
+  BackgroundTask,
   ChatMessage,
   Project,
   ProjectSession,
@@ -47,6 +48,9 @@ type ChatInterfaceProps = {
   onShowAllTasks?: (() => void) | null;
 };
 
+// Stable empty list so the composer does not re-render for sessions with none.
+const NO_BACKGROUND_TASKS: BackgroundTask[] = [];
+
 /**
  * Used by the project-workspace module (via the chat barrel) to render a
  * project session's chat tab; it owns the session, provider, realtime and
@@ -79,6 +83,24 @@ function ChatInterface({
   } = useSessionProtectionActions();
 
   const sessionStore = useSessionStore();
+  // Still-running background tasks per session, as last reported by the server.
+  const [backgroundTasksBySession, setBackgroundTasksBySession] = useState<ReadonlyMap<string, BackgroundTask[]>>(
+    () => new Map(),
+  );
+  const handleBackgroundTasks = useCallback((sessionId: string, tasks: BackgroundTask[]) => {
+    setBackgroundTasksBySession((prev) => {
+      if ((prev.get(sessionId)?.length ?? 0) === 0 && tasks.length === 0) {
+        return prev;
+      }
+      const next = new Map(prev);
+      if (tasks.length > 0) {
+        next.set(sessionId, tasks);
+      } else {
+        next.delete(sessionId);
+      }
+      return next;
+    });
+  }, []);
   const streamTimerRef = useRef<number | null>(null);
   const accumulatedStreamRef = useRef('');
   // When each session's `chat.subscribe` was last sent; idle acks older than
@@ -288,6 +310,7 @@ function ChatInterface({
     statusCheckSentAtRef,
     onSessionProcessing,
     onSessionIdle,
+    onBackgroundTasks: handleBackgroundTasks,
     onWebSocketReconnect: handleWebSocketReconnect,
     requestLatestMessages,
     sessionStore,
@@ -393,7 +416,11 @@ function ChatInterface({
   // Mirrors ChatComposer's own visibility check so the message pane can
   // reserve enough bottom space to keep the floating status tab from
   // overlapping the last message.
-  const hasActivityIndicator = Boolean(sessionActivity && pendingPermissionRequests.length === 0);
+  const viewedSessionId = currentSessionId || selectedSession?.id || null;
+  const backgroundTasks = (viewedSessionId && backgroundTasksBySession.get(viewedSessionId)) || NO_BACKGROUND_TASKS;
+  const hasActivityIndicator = Boolean(
+    (sessionActivity || backgroundTasks.length > 0) && pendingPermissionRequests.length === 0,
+  );
 
   const selectedProviderLabel =
     provider === 'cursor'
@@ -498,6 +525,7 @@ function ChatInterface({
           handlePermissionDecision={handlePermissionDecision}
           handleGrantToolPermission={handleGrantToolPermission}
           activity={sessionActivity}
+          backgroundTasks={backgroundTasks}
           isLoading={isProcessing}
           onAbortSession={handleAbortSession}
           permissionMode={permissionMode}

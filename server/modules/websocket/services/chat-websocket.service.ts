@@ -489,6 +489,7 @@ function handleChatSubscribe(
       isProcessing,
       lastSeq: run?.lastSeq ?? 0,
       pendingPermissions,
+      backgroundTasks: chatRunRegistry.getBackgroundTasks(sessionId),
       timestamp: new Date().toISOString(),
     });
 

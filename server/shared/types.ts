@@ -191,6 +191,7 @@ export type MessageKind =
   | 'session_created'
   | 'history_truncated'
   | 'run_resumed'
+  | 'background_tasks'
   | 'task_notification';
 
 /**
@@ -366,10 +367,31 @@ export type NormalizedMessage = {
   subagent?: SubagentInfo;
   /** Stored memory the reply drew on, when the provider reports it. */
   memoryCitations?: MemoryCitation[];
+  /**
+   * On a `background_tasks` event: every background task the session's
+   * provider process still has running, replacing any earlier list. Empty
+   * when the last one ends or the process exits.
+   */
+  backgroundTasks?: BackgroundTaskSummary[];
   toolUseResult?: unknown;
   sequence?: number;
   rowid?: number;
   [key: string]: unknown;
+};
+
+/**
+ * One background task (a backgrounded shell, a background agent, a Monitor)
+ * that a provider process is still running after its turn ended.
+ *
+ * Carried by `background_tasks` events and the `chat_subscribed` ack so the
+ * composer can say work is still going on while the session looks idle. Only
+ * Claude reports these today.
+ */
+export type BackgroundTaskSummary = {
+  /** The provider's task id, stable for the task's lifetime. */
+  id: string;
+  /** What the task is doing, as the provider describes it. May be empty. */
+  description: string;
 };
 
 /**

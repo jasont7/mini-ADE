@@ -247,6 +247,43 @@ test('a run replaced by a newer one cannot resume', async () => {
   });
 });
 
+test('background tasks are remembered per session and survive the run completing', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createAppSession('app-run-12', 'claude', '/workspace/demo');
+    const connection = new FakeConnection();
+    const firstRun = chatRunRegistry.startRun({
+      appSessionId: 'app-run-12',
+      provider: 'claude',
+      providerSessionId: null,
+      connection,
+      userId: null,
+    });
+    assert.ok(firstRun);
+
+    const tasks = [{ id: 'bzhkf5nl6', description: 'sleep 25 && echo finished' }];
+    firstRun.writer.send({ kind: 'background_tasks', provider: 'claude', sessionId: 'native-12', backgroundTasks: tasks });
+    firstRun.writer.send({ kind: 'complete', provider: 'claude', sessionId: 'native-12', exitCode: 0 });
+    // The turn is over but the shell is not.
+    assert.deepEqual(chatRunRegistry.getBackgroundTasks('app-run-12'), tasks);
+    assert.equal(connection.frames.find((frame) => frame.kind === 'background_tasks')?.sessionId, 'app-run-12');
+
+    // A newer run owns the session now; the old run's wind-down cannot clear it.
+    const secondRun = chatRunRegistry.startRun({
+      appSessionId: 'app-run-12',
+      provider: 'claude',
+      providerSessionId: null,
+      connection,
+      userId: null,
+    });
+    assert.ok(secondRun);
+    firstRun.writer.send({ kind: 'background_tasks', provider: 'claude', sessionId: 'native-12', backgroundTasks: [] });
+    assert.deepEqual(chatRunRegistry.getBackgroundTasks('app-run-12'), tasks);
+
+    secondRun.writer.send({ kind: 'background_tasks', provider: 'claude', sessionId: 'native-12', backgroundTasks: [] });
+    assert.deepEqual(chatRunRegistry.getBackgroundTasks('app-run-12'), []);
+  });
+});
+
 test('listRunningRuns returns only currently running app sessions', async () => {
   await withIsolatedDatabase(() => {
     sessionsDb.createAppSession('app-run-7', 'claude', '/workspace/demo');

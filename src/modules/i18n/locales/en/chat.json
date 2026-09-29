@@ -253,6 +253,12 @@
     },
     "providers": {
       "assistant": "Assistant"
+    },
+    "background": {
+      "one": "Background: {{description}}",
+      "many": "{{count}} background tasks running",
+      "unnamed": "Background task running",
+      "title": "Still running after the last reply. It reports back and continues on its own. You can keep chatting."
     }
   },
   "projectSelection": {

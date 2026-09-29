@@ -169,6 +169,19 @@ export type SessionActivity = {
   startedAt: number;
 };
 
+/**
+ * One background task (a backgrounded shell, a background agent, a Monitor) a
+ * session's provider process is still running after its turn ended. The
+ * composer lists these while the session is otherwise idle, since that work can
+ * still report back and start a turn on its own.
+ */
+export type BackgroundTask = {
+  /** The provider's task id, stable for the task's lifetime. */
+  id: string;
+  /** What the task is doing, as the provider describes it. May be empty. */
+  description: string;
+};
+
 /** Every session currently producing a response, keyed by session id. Read it to tell whether a session is busy. */
 export type SessionActivityMap = ReadonlyMap<string, SessionActivity>;
 
@@ -534,6 +547,7 @@ type MessageKind =
   | 'session_created'
   | 'history_truncated'
   | 'run_resumed'
+  | 'background_tasks'
   | 'task_notification';
 
 // ---------------------------
