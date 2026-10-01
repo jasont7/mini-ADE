@@ -180,6 +180,12 @@ export type BackgroundTask = {
   id: string;
   /** What the task is doing, as the provider describes it. May be empty. */
   description: string;
+  /**
+   * When the task started, as epoch ms. The server does not send this: the
+   * client takes it from the transcript's tool call that launched the task,
+   * or failing that from when it first saw the task.
+   */
+  startedAt?: number;
 };
 
 /** Every session currently producing a response, keyed by session id. Read it to tell whether a session is busy. */

@@ -243,6 +243,7 @@
     "elapsed": {
       "seconds": "{{count}}s",
       "minutesSeconds": "{{minutes}}m {{seconds}}s",
+      "hoursMinutes": "{{hours}}h {{minutes}}m",
       "label": "{{time}} elapsed",
       "startingNow": "Starting now"
     },

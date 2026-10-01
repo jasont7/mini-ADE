@@ -21,6 +21,7 @@ import { useChatSessionState } from '@/modules/chat/hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '@/modules/chat/hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '@/modules/chat/hooks/useChatComposerState';
 import { useSessionStore } from '@/modules/chat/hooks/useSessionStore';
+import { findBackgroundTaskStartTimes } from '@/modules/chat/utils/backgroundTaskStartTimes';
 import {
   useProcessingSessions,
   useSessionProtectionActions,
@@ -89,12 +90,19 @@ function ChatInterface({
   );
   const handleBackgroundTasks = useCallback((sessionId: string, tasks: BackgroundTask[]) => {
     setBackgroundTasksBySession((prev) => {
-      if ((prev.get(sessionId)?.length ?? 0) === 0 && tasks.length === 0) {
+      const previous = prev.get(sessionId) ?? [];
+      if (previous.length === 0 && tasks.length === 0) {
         return prev;
       }
       const next = new Map(prev);
       if (tasks.length > 0) {
-        next.set(sessionId, tasks);
+        // The server sends no start times. Stamp when each task was first seen,
+        // keeping the stamp across list updates, as the timer's fallback.
+        const now = Date.now();
+        next.set(sessionId, tasks.map((task) => ({
+          ...task,
+          startedAt: previous.find((known) => known.id === task.id)?.startedAt ?? now,
+        })));
       } else {
         next.delete(sessionId);
       }
@@ -417,7 +425,17 @@ function ChatInterface({
   // reserve enough bottom space to keep the floating status tab from
   // overlapping the last message.
   const viewedSessionId = currentSessionId || selectedSession?.id || null;
-  const backgroundTasks = (viewedSessionId && backgroundTasksBySession.get(viewedSessionId)) || NO_BACKGROUND_TASKS;
+  const reportedBackgroundTasks = (viewedSessionId && backgroundTasksBySession.get(viewedSessionId)) || NO_BACKGROUND_TASKS;
+  // Prefer the launching tool call's time from the transcript: it is when the
+  // work really began, and unlike the first-seen stamp it survives a reload.
+  const backgroundTasks = useMemo(() => {
+    if (reportedBackgroundTasks.length === 0) return NO_BACKGROUND_TASKS;
+    const fromTranscript = findBackgroundTaskStartTimes(chatMessages, reportedBackgroundTasks);
+    return reportedBackgroundTasks.map((task) => ({
+      ...task,
+      startedAt: fromTranscript.get(task.id) ?? task.startedAt,
+    }));
+  }, [chatMessages, reportedBackgroundTasks]);
   const hasActivityIndicator = Boolean(
     (sessionActivity || backgroundTasks.length > 0) && pendingPermissionRequests.length === 0,
   );

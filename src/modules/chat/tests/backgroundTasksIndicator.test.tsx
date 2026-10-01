@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
+
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { renderHook } from '@testing-library/react';
-import { test } from 'vitest';
+import { afterEach, test, vi } from 'vitest';
 
 // Initializes i18next with the real locales, so the labels below are the shipped strings.
 import '@/modules/i18n';
@@ -86,4 +87,30 @@ test('the tab names a single task and counts several', () => {
   assert.match(many, /Narval Makefile/);
 
   assert.equal(renderToStaticMarkup(React.createElement(BackgroundTasksIndicator, { tasks: [] })), '');
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+test('the tab shows how long the oldest task has run', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-30T18:00:00.000Z'));
+  const now = Date.now();
+
+  const seconds = renderToStaticMarkup(React.createElement(BackgroundTasksIndicator, {
+    tasks: [{ ...shell, startedAt: now - 42_000 }],
+  }));
+  assert.match(seconds, />42s</);
+
+  const minutes = renderToStaticMarkup(React.createElement(BackgroundTasksIndicator, {
+    tasks: [{ ...shell, startedAt: now - 125_000 }, { id: 'm1', description: 'Narval Makefile', startedAt: now - 5_000 }],
+  }));
+  assert.match(minutes, />2m 5s</);
+  assert.match(minutes, /Narval Makefile \(5s\)/);
+
+  const hours = renderToStaticMarkup(React.createElement(BackgroundTasksIndicator, {
+    tasks: [{ ...shell, startedAt: now - (2 * 3600 + 7 * 60 + 30) * 1000 }],
+  }));
+  assert.match(hours, />2h 7m</);
 });
