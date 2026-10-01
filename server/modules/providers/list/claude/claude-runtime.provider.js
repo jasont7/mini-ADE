@@ -67,10 +67,17 @@ const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEO
 //
 // The hold normally ends long before this: a turn with nothing outstanding closes
 // stdin immediately, background work releases it as soon as it reports back, and a
-// new turn supersedes the previous hold. This ceiling only catches background work
-// that never reports at all, so an abandoned session cannot leak a CLI process
-// forever. The timer resets on every message, so it measures silence, not total time.
+// new turn supersedes the previous hold. This ceiling only catches deferred work
+// that never reports at all (a wake-up or cron that never fires), so an abandoned
+// session cannot leak a CLI process forever. The timer resets on every message, so
+// it measures silence, not total time.
+//
+// It never fires while the CLI reports a background task still running. A shell
+// waiting on hours of training is silent by design, and releasing stdin under it
+// kills it: the CLI's task events already say when it ends.
 const BG_WAIT_CEILING_MS = 30 * 60 * 1000;
+// Silence before an idle hold is released. Only tests shorten it.
+const IDLE_RELEASE_MS = parseInt(process.env.CLAUDE_IDLE_RELEASE_MS, 10) || BG_WAIT_CEILING_MS;
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
@@ -878,8 +885,13 @@ async function queryClaudeSDK(command, options = {}, ws, context) {
     }
     idleReleaseTimer = setTimeout(() => {
       idleReleaseTimer = null;
+      if (runningTasks.size > 0) {
+        // Quiet, not abandoned: a running task reports its own end.
+        scheduleRelease();
+        return;
+      }
       releasePromptStream();
-    }, BG_WAIT_CEILING_MS);
+    }, IDLE_RELEASE_MS);
     // Never let the hold keep the server process alive on its own.
     idleReleaseTimer.unref?.();
   };
