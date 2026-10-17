@@ -40,3 +40,29 @@ export const clearLegacyStarredProjectIds = () => {
     // Keep UI responsive even if storage is unavailable.
   }
 };
+
+const NAVIGATOR_SCOPE_STORAGE_KEY = 'navigatorScope';
+const NAVIGATOR_SCOPE_ALL = 'all';
+
+/**
+ * Reads the project the session pane last showed, or null for every project.
+ * Per device on purpose: a phone and a desktop are usually looking at
+ * different things.
+ */
+export const readNavigatorScope = (): string | null => {
+  try {
+    const saved = localStorage.getItem(NAVIGATOR_SCOPE_STORAGE_KEY);
+    return saved && saved !== NAVIGATOR_SCOPE_ALL ? saved : null;
+  } catch {
+    return null;
+  }
+};
+
+/** Persists the session pane's scope; null stores "every project". */
+export const writeNavigatorScope = (projectId: string | null) => {
+  try {
+    localStorage.setItem(NAVIGATOR_SCOPE_STORAGE_KEY, projectId ?? NAVIGATOR_SCOPE_ALL);
+  } catch {
+    // Keep UI responsive even if storage is unavailable.
+  }
+};

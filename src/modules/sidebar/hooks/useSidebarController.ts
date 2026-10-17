@@ -4,16 +4,17 @@ import type { TFunction } from 'i18next';
 import { api } from '@/shared/api';
 import { subscribeToUserPreferences } from '@/shared/userSettings';
 import { usePaletteOps } from '@/modules/command-palette';
-import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectSession, ProjectSortOrder, RecentConversationListItem, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionTitleSearchResult, SessionWithProvider, SidebarSearchMode } from '@/shared/types';
+import type { ArchivedProjectListItem, ArchivedSessionListItem, ConversationProjectResult, ConversationSearchResults, LLMProvider, Project, ProjectSession, ProjectSortOrder, SearchProgress, ActiveSidebarRename, PendingSidebarDeletion, SessionPaneMode, SessionTitleSearchResult, SessionWithProvider } from '@/shared/types';
 import {
-  filterProjects,
   getAllSessions,
   sortProjects,
 } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 import {
   clearLegacyStarredProjectIds,
   readLegacyStarredProjectIds,
+  readNavigatorScope,
   readProjectSortOrder,
+  writeNavigatorScope,
 } from '@/modules/sidebar/utils/sidebarStoredPreferences';
 
 
@@ -31,21 +32,9 @@ type ArchivedProjectsApiPayload = {
   };
 };
 
-type RecentConversationsApiPayload = {
-  success?: boolean;
-  data?: {
-    conversations?: RecentConversationListItem[];
-    total?: number;
-    hasMore?: boolean;
-  };
-};
-
 type UseSidebarControllerArgs = {
   projects: Project[];
   selectedProject: Project | null;
-  selectedSession: ProjectSession | null;
-  activeSessions: ReadonlySet<string>;
-  isLoading: boolean;
   isMobile: boolean;
   t: TFunction;
   onRefresh: () => Promise<void> | void;
@@ -63,9 +52,6 @@ type UseSidebarControllerArgs = {
 export function useSidebarController({
   projects,
   selectedProject,
-  selectedSession: _selectedSession,
-  activeSessions,
-  isLoading,
   isMobile,
   t,
   onRefresh,
@@ -79,14 +65,14 @@ export function useSidebarController({
   sidebarVisible,
 }: UseSidebarControllerArgs) {
   const paletteOps = usePaletteOps();
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
-  // Running groups start expanded and remember manual collapses independently of Projects.
-  const [collapsedRunningProjects, setCollapsedRunningProjects] = useState<Set<string>>(new Set());
+  // The project the session pane is showing, or null for every project at
+  // once. Kept apart from the selected project so browsing another project's
+  // sessions does not navigate away from the open chat.
+  const [scopeProjectId, setScopeProjectIdState] = useState<string | null>(readNavigatorScope);
   // The one rename the sidebar has open, as a single value so a project and a
   // session cannot both be mid-rename. See ActiveSidebarRename.
   const [activeRename, setActiveRename] = useState<ActiveSidebarRename | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
-  const [initialSessionsLoaded, setInitialSessionsLoaded] = useState<Set<string>>(new Set());
   const [currentTime, setCurrentTime] = useState(new Date());
   const [projectSortOrder, setProjectSortOrder] = useState<ProjectSortOrder>('name');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -97,32 +83,23 @@ export function useSidebarController({
   // otherwise stack. See PendingSidebarDeletion.
   const [pendingDeletion, setPendingDeletion] = useState<PendingSidebarDeletion | null>(null);
   const [showVersionModal, setShowVersionModal] = useState(false);
-  const [searchMode, setSearchMode] = useState<SidebarSearchMode>('projects');
+  const [searchMode, setSearchMode] = useState<SessionPaneMode>('sessions');
   const [conversationResults, setConversationResults] = useState<ConversationSearchResults | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null);
   const [archivedProjects, setArchivedProjects] = useState<ArchivedProjectListItem[]>([]);
   const [archivedSessions, setArchivedSessions] = useState<ArchivedSessionListItem[]>([]);
   const [isArchivedSessionsLoading, setIsArchivedSessionsLoading] = useState(false);
-  const [recentConversations, setRecentConversations] = useState<RecentConversationListItem[]>([]);
-  const [recentConversationsTotal, setRecentConversationsTotal] = useState(0);
-  const [recentConversationsHasMore, setRecentConversationsHasMore] = useState(false);
-  const [isRecentConversationsLoading, setIsRecentConversationsLoading] = useState(false);
-  const [isLoadingMoreRecentConversations, setIsLoadingMoreRecentConversations] = useState(false);
-  const [recentConversationsError, setRecentConversationsError] = useState(false);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [optimisticStarByProjectId, setOptimisticStarByProjectId] = useState<Map<string, boolean>>(new Map());
   const [loadingMoreProjects, setLoadingMoreProjects] = useState<Set<string>>(new Set());
   const searchSeqRef = useRef(0);
-  const recentConversationsSeqRef = useRef(0);
   const eventSourceRef = useRef<EventSource | null>(null);
   const starToggleSequenceByProjectRef = useRef<Map<string, number>>(new Map());
   const migrationStartedRef = useRef(false);
   const onRefreshRef = useRef(onRefresh);
 
   const isSidebarCollapsed = !isMobile && !sidebarVisible;
-  const activeSessionIds = activeSessions;
-  const runningSessionsCount = activeSessionIds.size;
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -132,40 +109,20 @@ export function useSidebarController({
     return () => clearInterval(timer);
   }, []);
 
+  // Follow the open session into its project, unless the pane is showing every
+  // project, where it already is. Keyed on the id alone: websocket refreshes
+  // rebuild the project object and must not undo a scope the user picked.
   useEffect(() => {
-    setInitialSessionsLoaded(new Set());
-  }, [projects]);
-
-  useEffect(() => {
-    // Auto-expand only when the selected project identity changes.
-    // Depending on the full `selectedProject` object (or `selectedSession`) causes
-    // websocket-driven list refreshes to re-open projects users manually collapsed.
     const selectedProjectId = selectedProject?.projectId;
     if (!selectedProjectId) {
       return;
     }
-
-    setExpandedProjects((prev) => {
-      if (prev.has(selectedProjectId)) {
-        return prev;
-      }
-      const next = new Set(prev);
-      next.add(selectedProjectId);
-      return next;
-    });
+    setScopeProjectIdState((previous) => (previous === null ? previous : selectedProjectId));
   }, [selectedProject?.projectId]);
 
   useEffect(() => {
-    if (projects.length > 0 && !isLoading) {
-      const loadedProjects = new Set<string>();
-      projects.forEach((project) => {
-        if (project.sessions && project.sessions.length >= 0) {
-          loadedProjects.add(project.projectId);
-        }
-      });
-      setInitialSessionsLoaded(loadedProjects);
-    }
-  }, [projects, isLoading]);
+    writeNavigatorScope(scopeProjectId);
+  }, [scopeProjectId]);
 
   // The sort order used to be polled once a second (plus a `storage` listener
   // for other tabs) because nothing announced a change. The preference store
@@ -217,73 +174,6 @@ export function useSidebarController({
     }
   }, []);
 
-  const fetchRecentConversationsPage = useCallback(async (offset: number, append: boolean) => {
-    const requestSequence = ++recentConversationsSeqRef.current;
-    if (append) {
-      setIsLoadingMoreRecentConversations(true);
-    } else {
-      setIsRecentConversationsLoading(true);
-    }
-    setRecentConversationsError(false);
-
-    try {
-      const response = await api.recentConversations({ limit: 40, offset });
-      if (!response.ok) {
-        throw new Error(`Failed to load recent conversations: ${response.status}`);
-      }
-
-      const payload = (await response.json()) as RecentConversationsApiPayload;
-      const conversations = Array.isArray(payload.data?.conversations)
-        ? payload.data.conversations
-        : [];
-
-      if (requestSequence !== recentConversationsSeqRef.current) {
-        return;
-      }
-
-      setRecentConversations((previous) => {
-        if (!append) {
-          return conversations;
-        }
-
-        const existingIds = new Set(previous.map((conversation) => conversation.sessionId));
-        return [
-          ...previous,
-          ...conversations.filter((conversation) => !existingIds.has(conversation.sessionId)),
-        ];
-      });
-      setRecentConversationsTotal(Number(payload.data?.total ?? conversations.length));
-      setRecentConversationsHasMore(Boolean(payload.data?.hasMore));
-    } catch (error) {
-      if (requestSequence !== recentConversationsSeqRef.current) {
-        return;
-      }
-      console.error('[Sidebar] Failed to load recent conversations:', error);
-      setRecentConversationsError(true);
-    } finally {
-      if (requestSequence === recentConversationsSeqRef.current) {
-        setIsRecentConversationsLoading(false);
-        setIsLoadingMoreRecentConversations(false);
-      }
-    }
-  }, []);
-
-  const reloadRecentConversations = useCallback(() => {
-    void fetchRecentConversationsPage(0, false);
-  }, [fetchRecentConversationsPage]);
-
-  const loadMoreRecentConversations = useCallback(() => {
-    if (isLoadingMoreRecentConversations || !recentConversationsHasMore) {
-      return;
-    }
-    void fetchRecentConversationsPage(recentConversations.length, true);
-  }, [
-    fetchRecentConversationsPage,
-    isLoadingMoreRecentConversations,
-    recentConversations.length,
-    recentConversationsHasMore,
-  ]);
-
   useEffect(() => {
     if (migrationStartedRef.current) {
       return;
@@ -315,15 +205,7 @@ export function useSidebarController({
   }, [fetchArchivedSessions]);
 
   useEffect(() => {
-    if (searchMode !== 'conversations' || debouncedSearchQuery.length >= 2) {
-      return;
-    }
-
-    reloadRecentConversations();
-  }, [debouncedSearchQuery, reloadRecentConversations, searchMode]);
-
-  useEffect(() => {
-    if (searchMode !== 'archived') {
+    if (searchMode !== 'archive') {
       return;
     }
 
@@ -379,7 +261,7 @@ export function useSidebarController({
     }
 
     const query = debouncedSearchQuery;
-    if (searchMode !== 'conversations' || query.length < 2) {
+    if (searchMode !== 'messages' || query.length < 2) {
       searchSeqRef.current += 1;
       setConversationResults(null);
       setSearchProgress(null);
@@ -489,42 +371,6 @@ export function useSidebarController({
       }
     };
   }, [debouncedSearchQuery, searchMode]);
-
-  // All sidebar state keys (expanded, starred, loading, etc.) use the DB
-  // `projectId` as their identifier after the migration.
-  const toggleProject = useCallback(
-    (projectId: string) => {
-      if (searchMode === 'running') {
-        setCollapsedRunningProjects((prev) => {
-          const next = new Set(prev);
-          if (!next.delete(projectId)) {
-            next.add(projectId);
-          }
-          return next;
-        });
-        return;
-      }
-
-      // Expanding one project used to collapse every other: the next set was
-       // built empty rather than from the current one.
-      setExpandedProjects((prev) => {
-        const next = new Set<string>(prev);
-        if (!next.delete(projectId)) {
-          next.add(projectId);
-        }
-        return next;
-      });
-    },
-    [searchMode],
-  );
-
-  const isProjectExpanded = useCallback(
-    (projectId: string) =>
-      searchMode === 'running'
-        ? !collapsedRunningProjects.has(projectId)
-        : expandedProjects.has(projectId),
-    [collapsedRunningProjects, expandedProjects, searchMode],
-  );
 
   const handleSessionClick = useCallback(
     (session: SessionWithProvider, projectId: string) => {
@@ -673,37 +519,6 @@ export function useSidebarController({
     [projectSortOrder, projectsWithResolvedStarState],
   );
 
-  const runningProjects = useMemo(() => {
-    if (activeSessionIds.size === 0) {
-      return [];
-    }
-
-    return sortedProjects.reduce<Project[]>((acc, project) => {
-      const sessions = (project.sessions ?? []).filter((session) => activeSessionIds.has(String(session.id)));
-      const runningCount = sessions.length;
-
-      if (runningCount === 0) {
-        return acc;
-      }
-
-      acc.push({
-        ...project,
-        sessions,
-        sessionMeta: {
-          ...project.sessionMeta,
-          total: runningCount,
-          hasMore: false,
-        },
-      });
-      return acc;
-    }, []);
-  }, [activeSessionIds, sortedProjects]);
-
-  const filteredProjects = useMemo(
-    () => filterProjects(searchMode === 'running' ? runningProjects : sortedProjects, debouncedSearchQuery),
-    [debouncedSearchQuery, runningProjects, searchMode, sortedProjects],
-  );
-
   const filteredArchivedSessions = useMemo(() => {
     const normalizedSearch = debouncedSearchQuery.trim().toLowerCase();
     if (!normalizedSearch) {
@@ -824,16 +639,6 @@ export function useSidebarController({
 
       if (response.ok) {
         onSessionDelete?.(sessionId);
-        // Same gap as rename: nothing refetched the recents feed, so the row the
-        // user just archived stayed in the list. Archiving keeps the session, so
-        // only the non-archived total moves.
-        setRecentConversations((previous) => {
-          const remaining = previous.filter((conversation) => conversation.sessionId !== sessionId);
-          if (remaining.length !== previous.length) {
-            setRecentConversationsTotal((total) => Math.max(0, total - 1));
-          }
-          return remaining;
-        });
         await fetchArchivedSessions();
       } else {
         const errorText = await response.text();
@@ -981,14 +786,11 @@ export function useSidebarController({
       await Promise.all([
         Promise.resolve(onRefresh()),
         fetchArchivedSessions(),
-        searchMode === 'conversations'
-          ? fetchRecentConversationsPage(0, false)
-          : Promise.resolve(),
       ]);
     } finally {
       setIsRefreshing(false);
     }
-  }, [fetchArchivedSessions, fetchRecentConversationsPage, onRefresh, searchMode]);
+  }, [fetchArchivedSessions, onRefresh]);
 
   const updateSessionSummary = useCallback(
     // `_projectId` and `_provider` are preserved for compatibility with
@@ -1002,15 +804,6 @@ export function useSidebarController({
       try {
         const response = await api.renameSession(sessionId, trimmed);
         if (response.ok) {
-          // onRefresh reloads projects, not the recents feed, so a row renamed
-          // from the Conversations list kept its old title until the next fetch.
-          // Patching in place also preserves the pages already loaded past the
-          // first, which refetching page zero would discard.
-          setRecentConversations((previous) => previous.map((conversation) => (
-            conversation.sessionId === sessionId
-              ? { ...conversation, sessionTitle: trimmed }
-              : conversation
-          )));
           await onRefresh();
         } else {
           console.error('[Sidebar] Failed to rename session:', response.status);
@@ -1064,12 +857,20 @@ export function useSidebarController({
     setSidebarVisible(true);
   }, [setSidebarVisible]);
 
+  // Picking a scope always lands on its session list, and opens the pane when
+  // it was collapsed: on the rail, a tile click is a request to see the list.
+  const setScopeProjectId = useCallback((projectId: string | null) => {
+    setScopeProjectIdState(projectId);
+    setSearchMode('sessions');
+    setSidebarVisible(true);
+  }, [setSidebarVisible]);
+
   return {
     isSidebarCollapsed,
-    isProjectExpanded,
+    scopeProjectId,
+    setScopeProjectId,
     activeRename,
     showNewProject,
-    initialSessionsLoaded,
     currentTime,
     isRefreshing,
     searchFilter,
@@ -1077,21 +878,11 @@ export function useSidebarController({
     loadingMoreProjects,
     pendingDeletion,
     showVersionModal,
-    filteredProjects,
-    runningSessionsCount,
+    sortedProjects,
     archivedProjects: filteredArchivedProjects,
     archivedSessions: filteredArchivedSessions,
     archivedSessionsCount: archivedProjects.length + archivedSessions.length,
     isArchivedSessionsLoading,
-    recentConversations,
-    recentConversationsTotal,
-    recentConversationsHasMore,
-    isRecentConversationsLoading,
-    isLoadingMoreRecentConversations,
-    recentConversationsError,
-    reloadRecentConversations,
-    loadMoreRecentConversations,
-    toggleProject,
     handleSessionClick,
     forkSession,
     toggleStarProject,

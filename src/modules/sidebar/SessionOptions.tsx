@@ -1,11 +1,12 @@
 import { useEffect, useRef } from 'react';
-import { Check, Edit2, GitBranch, MoreHorizontal, Trash2, X } from 'lucide-react';
+import { Check, Columns2, Edit2, GitBranch, MoreHorizontal, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ActionMenu } from '@/shared/ui';
 import { cn } from '@/shared/utils';
 import type { LLMProvider } from '@/shared/types';
 import { useSessionForkingProviders } from '@/shared/hooks/useProviderCapabilities';
+import { useSplitViewActions } from '@/shared/context/SplitViewActionsContext';
 import { useProviderSessionIdCopy } from '@/modules/sidebar/hooks/useProviderSessionIdCopy';
 import { PROVIDER_LABELS } from '@/modules/sidebar/utils/sidebarProjectFormatting';
 
@@ -18,7 +19,7 @@ type SessionOptionsProps = {
    * which case rename is withheld rather than guessed — it is keyed by project.
    */
   projectId: string | null;
-  /** A running session cannot be deleted or forked, matching the Projects row. */
+  /** A running session cannot be deleted or forked. */
   isProcessing: boolean;
   isEditing: boolean;
   renameDraft: string;
@@ -36,13 +37,9 @@ type SessionOptionsProps = {
 };
 
 /**
- * A session row's controls: the options menu, and the inline rename that
- * replaces it while a rename is open.
- *
- * Shared by the Projects list and the Conversations list so the two rows cannot
- * drift — the first cut of the Conversations row copied this markup, which is
- * how two rows end up diverging one fix at a time. Callers keep only what is
- * genuinely theirs: where the controls sit, and whether deleting is offered.
+ * A session row's controls on desktop: the options menu, and the inline rename
+ * that replaces it while a rename is open. SessionPaneRow renders it; touch
+ * layouts get the same actions from SessionOptionsSheet.
  */
 export default function SessionOptions({
   sessionId,
@@ -71,6 +68,8 @@ export default function SessionOptions({
   // provider id here; the request is cached module-side, so every row shares one.
   const forkableProviders = useSessionForkingProviders();
   const canFork = Boolean(onFork) && forkableProviders.has(provider) && !isProcessing;
+  // Hidden below the split-view breakpoint, where split view never shows.
+  const { canOpenInSplitView, openInSplitView } = useSplitViewActions();
 
   // While editing, dismiss only when the click lands outside the rename panel,
   // matching Escape and the cancel button.
@@ -165,6 +164,12 @@ export default function SessionOptions({
               label: 'Rename session',
               icon: Edit2,
               onSelect: () => onStartEditingSession(projectId, sessionId, sessionName),
+            }] : []),
+            ...(canOpenInSplitView ? [{
+              key: 'split',
+              label: 'Open in split view',
+              icon: Columns2,
+              onSelect: () => openInSplitView({ sessionId, projectId }),
             }] : []),
             {
               key: 'copy',

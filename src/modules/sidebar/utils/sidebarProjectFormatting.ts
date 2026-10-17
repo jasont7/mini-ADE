@@ -34,8 +34,6 @@ export const formatCompactAge = (
   return hours < 24 ? `${hours}hr` : `${Math.floor(hours / 24)}d`;
 };
 
-const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
-
 const toMs = (timestamp: string | null | undefined): number => {
   const ms = timestamp ? Date.parse(timestamp) : Number.NaN;
   return Number.isNaN(ms) ? 0 : ms;
@@ -64,13 +62,6 @@ export const resolveSessionViewState = (
 /** A response finished after the session was last on screen anywhere. */
 export const isSessionUnread = ({ lastViewedAt, lastCompletedAt }: SessionViewState): boolean =>
   Boolean(lastCompletedAt) && toMs(lastCompletedAt) > toMs(lastViewedAt);
-
-/** A session greys out once a day passes with nothing new in it and nobody opening it. */
-export const isSessionStale = (
-  lastActivity: string | null | undefined,
-  lastViewedAt: string | null | undefined,
-  currentTime: Date,
-): boolean => currentTime.getTime() - Math.max(toMs(lastActivity), toMs(lastViewedAt)) > STALE_AFTER_MS;
 
 const getCreatedTimestamp = (session: SessionWithProvider): string => {
   return String(session.createdAt || session.created_at || '');
@@ -178,43 +169,6 @@ export const sortProjects = (
   });
 
   return byName;
-};
-
-export const filterProjects = (projects: Project[], searchFilter: string): Project[] => {
-  const normalizedSearch = searchFilter.trim().toLowerCase();
-  if (!normalizedSearch) {
-    return projects;
-  }
-
-  return projects.filter((project) => {
-    const displayName = (project.displayName || project.projectId).toLowerCase();
-    // `project.path`/`fullPath` is the most useful search target now that the
-    // folder-derived name is gone; fall back to displayName above.
-    const searchPath = (project.path || project.fullPath || '').toLowerCase();
-    return displayName.includes(normalizedSearch) || searchPath.includes(normalizedSearch);
-  });
-};
-
-export const getTaskIndicatorStatus = (
-  project: Project,
-  mcpServerStatus: { hasMCPServer?: boolean; isConfigured?: boolean } | null,
-) => {
-  const projectConfigured = Boolean(project.taskmaster?.hasTaskmaster);
-  const mcpConfigured = Boolean(mcpServerStatus?.hasMCPServer && mcpServerStatus?.isConfigured);
-
-  if (projectConfigured && mcpConfigured) {
-    return 'fully-configured';
-  }
-
-  if (projectConfigured) {
-    return 'taskmaster-only';
-  }
-
-  if (mcpConfigured) {
-    return 'mcp-only';
-  }
-
-  return 'not-configured';
 };
 
 export const normalizeProjectForSettings = (project: Project): SettingsProject => {
