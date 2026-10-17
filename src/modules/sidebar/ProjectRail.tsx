@@ -11,7 +11,7 @@ import {
 import type { DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertTriangle, Archive, Columns2, FolderPlus, Inbox, PanelLeftOpen, Settings, Sparkles } from 'lucide-react';
+import { AlertTriangle, Archive, Columns2, FolderPlus, Inbox, PanelLeftOpen, Settings } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Tooltip } from '@/shared/ui';
@@ -224,14 +224,12 @@ type ProjectRailProps = {
   openProjectId: string | null;
   isArchiveOpen: boolean;
   isPaneCollapsed: boolean;
-  updateAvailable: boolean;
   restartRequired: boolean;
   onSelectScope: (projectId: string | null) => void;
   onToggleArchive: () => void;
   onCreateProject: () => void;
   onExpandPane: () => void;
   onShowSettings: () => void;
-  onShowVersionModal: () => void;
   t: TFunction;
 };
 
@@ -252,14 +250,12 @@ function ProjectRail({
   openProjectId,
   isArchiveOpen,
   isPaneCollapsed,
-  updateAvailable,
   restartRequired,
   onSelectScope,
   onToggleArchive,
   onCreateProject,
   onExpandPane,
   onShowSettings,
-  onShowVersionModal,
   t,
 }: ProjectRailProps) {
   const isAllViewing = scopeProjectId === null && !isArchiveOpen;
@@ -378,11 +374,6 @@ function ProjectRail({
           >
             <AlertTriangle className="h-4 w-4 text-amber-500" />
           </div>
-        )}
-        {updateAvailable && (
-          <RailButton label={t('common:versionUpdate.ariaLabels.updateAvailable')} onClick={onShowVersionModal}>
-            <Sparkles className="h-4 w-4 text-blue-500" />
-          </RailButton>
         )}
         {/* The divider must directly precede Settings: public/mini-ade.js finds
             the Settings button by that sibling and inserts Restart server. */}

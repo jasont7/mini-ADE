@@ -76,7 +76,7 @@ function Sidebar({
 }: SidebarProps) {
   const { t } = useTranslation(['sidebar', 'common']);
   const { isPWA } = useDeviceSettings({ trackMobile: false });
-  const { updateAvailable, restartRequired, latestVersion, currentVersion, releaseInfo, installMode } = useVersionCheck(
+  const { restartRequired, latestVersion, currentVersion, releaseInfo, installMode } = useVersionCheck(
     'siteboon',
     'claudecodeui',
   );
@@ -363,14 +363,12 @@ function Sidebar({
           openProjectId={openProjectId}
           isArchiveOpen={searchMode === 'archive'}
           isPaneCollapsed={isSidebarCollapsed}
-          updateAvailable={updateAvailable}
           restartRequired={restartRequired}
           onSelectScope={setScopeProjectId}
           onToggleArchive={handleToggleArchive}
           onCreateProject={() => setShowNewProject(true)}
           onExpandPane={expandSidebar}
           onShowSettings={onShowSettings}
-          onShowVersionModal={() => setShowVersionModal(true)}
           t={t}
         />
 
