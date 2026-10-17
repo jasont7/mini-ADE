@@ -182,22 +182,64 @@ test('a question that was never answered carries no answers', () => {
 });
 
 test('a huge tool output is capped, and says how much it dropped', () => {
-  const body = 'x'.repeat(120_000);
+  const body = 'PASS src/app.test.ts (12 ms)\n'.repeat(5_000).slice(0, 120_000);
   const [unified] = prepareTranscriptMessages([
     message({
       kind: 'tool_use',
-      toolName: 'Read',
-      toolId: 'r1',
-      toolInput: { file_path: '/tmp/shot.png' },
-      toolResult: { content: body, toolUseResult: { file: { base64: body } } },
+      toolName: 'Bash',
+      toolId: 'b1',
+      toolInput: { command: 'npm test' },
+      toolResult: { content: body, toolUseResult: { stdout: body } },
     }),
   ]);
 
   const content = String(unified.toolResult?.content);
   assert.ok(content.length < body.length / 2, 'the output must not survive at full size');
   assert.match(content, /… 80000 more characters$/);
-  const nested = (unified.toolResult?.toolUseResult as { file: { base64: string } }).file.base64;
+  const nested = (unified.toolResult?.toolUseResult as { stdout: string }).stdout;
   assert.equal(nested, content, 'the structured copy is capped the same way');
+});
+
+test('encoded image data is dropped from both copies of a result, not just capped', () => {
+  const image = 'iVBORw0KGgoAAAANSUhEUgAA'.repeat(5_000);
+  const blocks = [
+    { type: 'text', text: '[computer:screenshot] Captured' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: image } },
+  ];
+  const [unified] = prepareTranscriptMessages([
+    message({
+      kind: 'tool_use',
+      toolName: 'mcp__claude-in-chrome__computer',
+      toolId: 'c1',
+      toolInput: { action: 'screenshot' },
+      toolResult: { content: JSON.stringify(blocks), toolUseResult: blocks },
+    }),
+  ]);
+
+  const content = String(unified.toolResult?.content);
+  assert.ok(content.length < 500, `the text copy should be tiny, got ${content.length}`);
+  const parsed = JSON.parse(content) as typeof blocks;
+  assert.equal(parsed[0].text, '[computer:screenshot] Captured', 'the readable part survives');
+  assert.equal(parsed[1].source?.data, `[${image.length} characters of encoded data omitted]`);
+
+  const structured = unified.toolResult?.toolUseResult as typeof blocks;
+  assert.equal(structured[1].source?.data, `[${image.length} characters of encoded data omitted]`);
+  assert.equal(structured[1].source?.media_type, 'image/png', 'small fields are kept');
+});
+
+test('ordinary long text is not mistaken for encoded data', () => {
+  const sourceFile = 'export const value = computeSomething(input, options);\n'.repeat(100);
+  const [unified] = prepareTranscriptMessages([
+    message({
+      kind: 'tool_use',
+      toolName: 'Read',
+      toolId: 'r2',
+      toolInput: { file_path: '/repo/src/value.ts' },
+      toolResult: { content: sourceFile },
+    }),
+  ]);
+
+  assert.equal(unified.toolResult?.content, sourceFile);
 });
 
 test('a search result keeps every file it found', () => {

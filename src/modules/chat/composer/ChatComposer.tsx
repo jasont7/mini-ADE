@@ -14,7 +14,7 @@ import { PaperclipIcon, MessageSquareIcon, XIcon, Loader2, ArrowUpIcon, PencilIc
 
 import { useVoiceInput } from '@/modules/chat/hooks/useVoiceInput';
 import { useVoiceAvailable } from '@/modules/chat/hooks/useVoiceAvailable';
-import type { BackgroundTask, QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption } from '@/shared/types';
+import type { BackgroundTask, QueuedDraft, ScheduledMessage, SlashCommand,SessionActivity,PendingPermissionRequest,PermissionMode,ProviderModelOption,DictationBox } from '@/shared/types';
 import {
   PromptInput,
   PromptInputHeader,
@@ -29,7 +29,8 @@ import CommandMenu from '@/modules/chat/composer/CommandMenu';
 import ActivityIndicator from '@/modules/chat/composer/ActivityIndicator';
 import BackgroundTasksIndicator from '@/modules/chat/composer/BackgroundTasksIndicator';
 import ComposerAttachment from '@/modules/chat/composer/ComposerAttachment';
-import VoiceInputButton from '@/modules/chat/composer/VoiceInputButton';
+import VoiceButtons from '@/modules/chat/composer/VoiceButtons';
+import type { LiveVoiceController } from '@/modules/chat/hooks/useLiveVoice';
 import PermissionRequestsBanner from '@/modules/chat/composer/PermissionRequestsBanner';
 import TokenUsageSummary from '@/modules/chat/composer/TokenUsageSummary';
 import QueuedMessageCard from '@/modules/chat/composer/QueuedMessageCard';
@@ -105,6 +106,9 @@ type ChatComposerProps = {
   textareaRef: RefObject<HTMLTextAreaElement>;
   input: string;
   onVoiceTranscript?: (text: string, send?: boolean) => void;
+  /** Lets dictation type into the message box as words are spoken. */
+  dictationBox?: DictationBox;
+  liveVoice: LiveVoiceController;
   onInputChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   onTextareaClick: (event: MouseEvent<HTMLTextAreaElement>) => void;
   onTextareaKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -179,6 +183,8 @@ export default function ChatComposer({
   textareaRef,
   input,
   onVoiceTranscript,
+  dictationBox,
+  liveVoice,
   onInputChange,
   onTextareaClick,
   onTextareaKeyDown,
@@ -242,6 +248,7 @@ export default function ChatComposer({
   const { state: voiceState, toggle: voiceToggle, stop: voiceStop } = useVoiceInput(
     onVoiceTranscript ?? noopTranscript,
     handleVoiceError,
+    dictationBox,
   );
   const isRecording = voiceState === 'recording';
   const isTranscribing = voiceState === 'transcribing';
@@ -447,8 +454,14 @@ export default function ChatComposer({
               <PaperclipIcon />
             </PromptInputButton>
 
-            {onVoiceTranscript && voiceAvailable && (
-              <VoiceInputButton state={voiceState} onToggle={voiceToggle} errorMsg={voiceError} />
+            {onVoiceTranscript && (voiceAvailable || liveVoice.geminiAvailable) && (
+              <VoiceButtons
+                voiceState={voiceState}
+                voiceToggle={voiceToggle}
+                voiceError={voiceError}
+                dictationAvailable={voiceAvailable}
+                live={liveVoice}
+              />
             )}
 
             <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />

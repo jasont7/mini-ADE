@@ -15,12 +15,21 @@ import ProviderSelectionEmptyState from '@/modules/chat/transcript/ProviderSelec
 import ToolGroupContainer from '@/modules/chat/transcript/ToolGroupContainer';
 import LoadAllMessagesOverlay from '@/modules/chat/transcript/LoadAllMessagesOverlay';
 import ChatExportMenu from '@/modules/chat/transcript/ChatExportMenu';
+import { useStalledWait } from '@/modules/chat/hooks/useStalledWait';
+
+// Matches the transcript request's own timeout: by then it has either
+// arrived or failed, so a spinner still up is not going to resolve by itself.
+const SESSION_LOAD_STALL_MS = 30_000;
 
 type ChatMessagesPaneProps = {
   scrollContainerRef: RefObject<HTMLDivElement>;
   onWheel: () => void;
   onTouchMove: () => void;
   isLoadingSessionMessages: boolean;
+  /** The open session's transcript request failed or timed out. */
+  hasSessionLoadFailed: boolean;
+  /** Requests the open session's transcript again. */
+  onRetrySessionLoad: () => void;
   /** True while the viewed session has an active provider run in flight. */
   isProcessing?: boolean;
   /** True while ChatComposer's floating activity/stop tab is rendered above the input. */
@@ -76,6 +85,8 @@ function ChatMessagesPane({
   onWheel,
   onTouchMove,
   isLoadingSessionMessages,
+  hasSessionLoadFailed,
+  onRetrySessionLoad,
   isProcessing = false,
   hasActivityIndicator = false,
   chatMessages,
@@ -116,6 +127,27 @@ function ChatMessagesPane({
   selectedProject,
 }: ChatMessagesPaneProps) {
   const { t } = useTranslation('chat');
+  const isAwaitingTranscript = (isLoadingSessionMessages || isProcessing)
+    && chatMessages.length === 0
+    && !hasSessionLoadFailed;
+  const { isStalled: isTranscriptLoadStalled, restart: restartStallTimer } = useStalledWait(
+    isAwaitingTranscript,
+    selectedSession?.id ?? null,
+    SESSION_LOAD_STALL_MS,
+  );
+
+  const retryButton = (
+    <button
+      type="button"
+      onClick={() => {
+        restartStallTimer();
+        onRetrySessionLoad();
+      }}
+      className="mt-3 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent active:scale-[0.98]"
+    >
+      {t('session.loading.retry')}
+    </button>
+  );
   const groupedVisibleMessages = useMemo(
     () => groupConsecutiveTools(visibleMessages, Boolean(showThinking)),
     [visibleMessages, showThinking],
@@ -177,12 +209,23 @@ function ChatMessagesPane({
         </div>
       )}
       <div className="mx-auto w-full max-w-[54.25rem] space-y-3 px-4 sm:space-y-4">
-      {(isLoadingSessionMessages || isProcessing) && chatMessages.length === 0 ? (
+      {hasSessionLoadFailed && chatMessages.length === 0 ? (
+        <div className="mt-8 text-center text-gray-500 dark:text-gray-400">
+          <p>{t('session.loading.failed')}</p>
+          {retryButton}
+        </div>
+      ) : isAwaitingTranscript ? (
         <div className="mt-8 text-center text-gray-500 dark:text-gray-400">
           <div className="flex items-center justify-center space-x-2">
-            <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-gray-400" />
+            <div className="activity-indicator h-4 w-4 animate-spin rounded-full border-b-2 border-gray-400" />
             <p>{t('session.loading.sessionMessages')}</p>
           </div>
+          {isTranscriptLoadStalled && (
+            <>
+              <p className="mt-3 text-sm">{t('session.loading.stalled')}</p>
+              {retryButton}
+            </>
+          )}
         </div>
       ) : chatMessages.length === 0 ? (
         <ProviderSelectionEmptyState

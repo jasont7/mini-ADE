@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GitBranchIcon, PencilIcon } from 'lucide-react';
+import { GitBranchIcon, MicIcon, PencilIcon } from 'lucide-react';
 
 import type { ChatMessage, ClaudePermissionSuggestion, PermissionGrantResult, LLMProvider,DiffLine,Project } from '@/shared/types';
 import { formatUsageLimitText, stripProposedPlanEnvelope } from '@/modules/chat/utils/chatFormatting';
@@ -160,6 +160,24 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
               U
             </div>
           )}
+        </div>
+      ) : message.type === 'voice' ? (
+        /* Something said out loud in a voice session, or a one-line note about a request to Claude */
+        <div className="flex w-full items-start gap-2 py-0.5" data-voice-role={message.voiceRole}>
+          <MicIcon aria-hidden className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
+          <div dir="auto" className="min-w-0 flex-1 text-sm text-gray-700 dark:text-gray-300">
+            <span className="mr-1.5 font-medium text-foreground">
+              {message.voiceRole === 'user'
+                ? t('liveVoice.voiceRow.you')
+                : message.voiceRole === 'tool'
+                  ? t('liveVoice.voiceRow.claude')
+                  : t('liveVoice.voiceRow.voice')}
+            </span>
+            <span className={`whitespace-pre-wrap ${message.voiceRole === 'tool' ? 'text-xs text-muted-foreground' : ''}`}>
+              {message.content}
+            </span>
+          </div>
+          <span className="flex-shrink-0 text-xs text-muted-foreground">{formattedTime}</span>
         </div>
       ) : message.compact ? (
         /* A compaction: one row, its numbers, and its summary folded into it */

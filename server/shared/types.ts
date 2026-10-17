@@ -1342,6 +1342,98 @@ export type VoiceService = {
 };
 
 // ---------------------------
+//----------------- LIVE VOICE CONTRACTS ------------
+/**
+ * Live voice mode of a session. `off` keeps push-to-talk and read-aloud,
+ * `private` is hands-free through the local speech server, and `gemini` is a
+ * speech-to-speech front model that sends audio to Google.
+ */
+export type VoiceMode = 'off' | 'private' | 'gemini';
+
+/**
+ * Live voice settings stored for one app session. `geminiVoice` is a prebuilt
+ * Gemini voice preset name, or null to use the front model's default voice.
+ */
+export type SessionVoiceSettings = {
+  mode: VoiceMode;
+  geminiVoice: string | null;
+};
+
+/**
+ * Service behind the per-session voice mode routes. `get` falls back to
+ * `off` for sessions with nothing stored, and `set` rejects unknown modes and
+ * voice presets with a client-facing result instead of throwing.
+ */
+export type SessionVoiceSettingsService = {
+  get(sessionId: string): SessionVoiceSettings;
+  set(sessionId: string, input: { mode: unknown; geminiVoice?: unknown }): VoiceServiceResult<SessionVoiceSettings>;
+};
+
+/**
+ * Who an entry of a voice session's saved conversation belongs to: `user` is
+ * what Jason said, `gemini` is what the voice model said, and `tool` is a
+ * one-line note about a request sent to Claude or the reply that came back.
+ */
+export type VoiceTranscriptRole = 'user' | 'gemini' | 'tool';
+
+/**
+ * One saved entry of a voice session. `id` is chosen by the browser so a
+ * retried write is stored once, and `at` is the epoch millisecond the entry
+ * started, which is what interleaves it with Claude's rows.
+ */
+export type VoiceTranscriptEntry = {
+  id: string;
+  role: VoiceTranscriptRole;
+  text: string;
+  at: number;
+};
+
+/**
+ * Service behind the voice session routes. `registerSession` marks a session
+ * as a voice session, `append` validates and saves entries to the database
+ * and to the per-session markdown copy, and `list` returns them oldest first.
+ * Invalid input comes back as a client-facing result instead of throwing.
+ */
+export type VoiceTranscriptService = {
+  registerSession(sessionId: string, input: { name?: unknown }): Promise<VoiceServiceResult<{ sessionId: string }>>;
+  listSessionIds(): string[];
+  list(sessionId: string): VoiceServiceResult<VoiceTranscriptEntry[]>;
+  append(sessionId: string, entries: unknown): Promise<VoiceServiceResult<{ added: number }>>;
+};
+
+/**
+ * What the browser needs to decide whether and how to offer Gemini Live.
+ * `configured` is false when the server holds no API key, `reason` then holds
+ * the one-line explanation shown beside the disabled option. The key itself
+ * is never part of this value.
+ */
+export type GeminiLiveStatus = {
+  configured: boolean;
+  reason: string | null;
+  model: string;
+  /** True only when the configured model documents non-blocking tool calls. */
+  nonBlockingTools: boolean;
+  voices: string[];
+  defaultVoice: string;
+};
+
+/** A short-lived credential the browser uses to open one Live connection. */
+export type GeminiLiveToken = {
+  token: string;
+  model: string;
+  expiresAt: string;
+};
+
+/**
+ * Gemini Live service: reports availability and mints ephemeral tokens with
+ * the server-held API key. The key never leaves this service.
+ */
+export type GeminiLiveService = {
+  getStatus(): GeminiLiveStatus;
+  mintToken(): Promise<VoiceServiceResult<GeminiLiveToken>>;
+};
+
+// ---------------------------
 //----------------- CLI MODULE CONTRACTS ------------
 /**
  * Output boundary used by the CLI and Sandbox services.

@@ -185,7 +185,10 @@
     },
     "loading": {
       "olderMessages": "Loading older messages...",
-      "sessionMessages": "Loading session messages..."
+      "sessionMessages": "Loading session messages...",
+      "stalled": "Still loading after 30 seconds.",
+      "failed": "Couldn't load this conversation.",
+      "retry": "Retry"
     },
     "messages": {
       "showingOf": "Showing {{shown}} of {{total}} messages",
@@ -362,5 +365,33 @@
     "tokensLabel_other": "tokens",
     "escClosesModal": "Esc closes the modal.",
     "close": "Close"
+  },
+  "liveVoice": {
+    "modes": {
+      "gemini": "Gemini Live"
+    },
+    "end": "End live voice",
+    "mute": "Mute microphone",
+    "unmute": "Unmute microphone",
+    "phase": {
+      "connecting": "Connecting…",
+      "listening": "Listening",
+      "thinking": "Thinking",
+      "speaking": "Speaking",
+      "error": "Stopped"
+    },
+    "geminiPrivacy": "Audio goes to Google. The transcript stays on this Mac.",
+    "stateLabel": "Voice is on",
+    "geminiUnavailable": "Gemini Live is not available.",
+    "geminiNeedsSession": "Send a first message in this chat, or use New Voice Session.",
+    "openVoiceSession": "Go to the voice session",
+    "voiceMark": "Voice session",
+    "voiceRow": {
+      "you": "You",
+      "voice": "Voice",
+      "claude": "Claude"
+    },
+    "audioToGoogle": "Audio goes to Google",
+    "dictateWhileLive": "Dictation is off while Gemini Live runs"
   }
 }

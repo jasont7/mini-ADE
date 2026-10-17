@@ -1,5 +1,14 @@
+import os from 'node:os';
+import path from 'node:path';
+
 import multer from 'multer';
 
+import { sessionVoiceSettingsDb, voiceTranscriptDb } from '@/modules/database/index.js';
+
+import { createGeminiLiveService, GEMINI_VOICE_PRESETS } from './gemini-live.service.js';
+import { createLiveDictationService } from './live-dictation.service.js';
+import { createSessionVoiceSettingsService } from './session-voice-settings.service.js';
+import { createVoiceTranscriptService } from './voice-transcript.service.js';
 import { createVoiceRouter } from './voice.routes.js';
 import { createVoiceService } from './voice.service.js';
 
@@ -40,8 +49,41 @@ const audioUpload = multer({
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
+const geminiLiveService = createGeminiLiveService({
+  // Read once here so the key only ever lives in the service closure.
+  apiKey: (process.env.GEMINI_API_KEY || '').trim(),
+  model: (process.env.GEMINI_LIVE_MODEL || 'gemini-3.8-live').trim(),
+  fetchGoogle: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(15_000) }),
+  now: () => Date.now(),
+});
+
+const sessionVoiceSettingsService = createSessionVoiceSettingsService({
+  store: sessionVoiceSettingsDb,
+  voices: GEMINI_VOICE_PRESETS,
+});
+
+// Markdown copies live next to the database in mini-ADE's own data folder, never inside a project.
+const voiceTranscriptService = createVoiceTranscriptService({
+  store: voiceTranscriptDb,
+  directory: path.join(
+    process.env.DATABASE_PATH ? path.dirname(process.env.DATABASE_PATH) : path.join(os.homedir(), '.cloudcli'),
+    'voice-transcripts',
+  ),
+});
+
 /** Voice router assembled for the server entrypoint. */
 export const voiceRoutes = createVoiceRouter({
   voiceService,
+  geminiLiveService,
+  sessionVoiceSettingsService,
+  voiceTranscriptService,
   parseAudioUpload: audioUpload.single('audio'),
 });
+
+const liveDictationService = createLiveDictationService({
+  baseUrl: (process.env.VOICE_API_BASE_URL || '').replace(/\/$/, ''),
+  apiKey: process.env.VOICE_API_KEY || '',
+});
+
+/** Live dictation relay assembled for the websocket gateway. */
+export const handleLiveDictationConnection = liveDictationService.handleConnection;

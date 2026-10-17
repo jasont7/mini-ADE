@@ -2,11 +2,21 @@ import { Readable } from 'node:stream';
 
 import express from 'express';
 
-import type { VoiceRequestOverrides, VoiceService, VoiceServiceResult } from '@/shared/types.js';
+import type {
+  GeminiLiveService,
+  SessionVoiceSettingsService,
+  VoiceRequestOverrides,
+  VoiceTranscriptService,
+  VoiceService,
+  VoiceServiceResult,
+} from '@/shared/types.js';
 import { asyncHandler } from '@/shared/utils.js';
 
 type VoiceRouterDependencies = {
   voiceService: VoiceService;
+  geminiLiveService: GeminiLiveService;
+  sessionVoiceSettingsService: SessionVoiceSettingsService;
+  voiceTranscriptService: VoiceTranscriptService;
   parseAudioUpload: express.RequestHandler;
 };
 
@@ -107,6 +117,69 @@ export function createVoiceRouter(dependencies: VoiceRouterDependencies): expres
     }
 
     Readable.fromWeb(result.value.body).on('error', (error) => response.destroy(error)).pipe(response);
+  }));
+
+  router.get('/gemini/status', (_request, response) => {
+    response.json(dependencies.geminiLiveService.getStatus());
+  });
+
+  router.post('/gemini/token', asyncHandler(async (_request, response) => {
+    const result = await dependencies.geminiLiveService.mintToken();
+    if (sendFailure(response, result)) {
+      return;
+    }
+
+    response.setHeader('Cache-Control', 'no-store');
+    response.json(result.value);
+  }));
+
+  router.get('/sessions/:sessionId/mode', (request, response) => {
+    response.json(dependencies.sessionVoiceSettingsService.get(request.params.sessionId));
+  });
+
+  router.put('/sessions/:sessionId/mode', (request, response) => {
+    const result = dependencies.sessionVoiceSettingsService.set(request.params.sessionId, {
+      mode: request.body?.mode,
+      geminiVoice: request.body?.geminiVoice,
+    });
+    if (sendFailure(response, result)) {
+      return;
+    }
+
+    response.json(result.value);
+  });
+
+  router.get('/sessions', (_request, response) => {
+    response.json({ sessionIds: dependencies.voiceTranscriptService.listSessionIds() });
+  });
+
+  router.put('/sessions/:sessionId', asyncHandler(async (request, response) => {
+    const result = await dependencies.voiceTranscriptService.registerSession(String(request.params.sessionId), {
+      name: request.body?.name,
+    });
+    if (sendFailure(response, result)) {
+      return;
+    }
+
+    response.json(result.value);
+  }));
+
+  router.get('/sessions/:sessionId/transcript', (request, response) => {
+    const result = dependencies.voiceTranscriptService.list(request.params.sessionId);
+    if (sendFailure(response, result)) {
+      return;
+    }
+
+    response.json({ entries: result.value });
+  });
+
+  router.post('/sessions/:sessionId/transcript', asyncHandler(async (request, response) => {
+    const result = await dependencies.voiceTranscriptService.append(String(request.params.sessionId), request.body?.entries);
+    if (sendFailure(response, result)) {
+      return;
+    }
+
+    response.json(result.value);
   }));
 
   return router;

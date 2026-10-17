@@ -28,10 +28,19 @@ import {
 } from '@/shared/context/SessionProtectionContext';
 import ChatMessagesPane from '@/modules/chat/transcript/ChatMessagesPane';
 import ChatComposer from '@/modules/chat/composer/ChatComposer';
+import { useLiveVoiceController, useRegisterVoiceTarget } from '@/modules/chat/context/LiveVoiceContext';
+import { useVoiceTranscript } from '@/modules/chat/hooks/useVoiceTranscript';
+import { mergeVoiceRows } from '@/modules/chat/utils/voiceSession';
 import CommandResultModal from '@/modules/chat/modals/CommandResultModal';
 
 type ChatInterfaceProps = {
   isActive: boolean;
+  /**
+   * Whether this chat is the one the user is working in. Always true with one
+   * chat on screen; in split view only the focused pane takes window-wide keys
+   * such as Escape-to-stop, so one key press never stops both runs.
+   */
+  isFocused?: boolean;
   selectedProject: Project | null;
   selectedSession: ProjectSession | null;
   ws: WebSocket | null;
@@ -54,11 +63,12 @@ const NO_BACKGROUND_TASKS: BackgroundTask[] = [];
 
 /**
  * Used by the project-workspace module (via the chat barrel) to render a
- * project session's chat tab; it owns the session, provider, realtime and
+ * project session's chat tab, once per pane in split view; it owns the session, provider, realtime and
  * composer state that ChatMessagesPane and ChatComposer render.
  */
 function ChatInterface({
   isActive,
+  isFocused = true,
   selectedProject,
   selectedSession,
   ws,
@@ -164,6 +174,8 @@ function ChatInterface({
     currentSessionId,
     setCurrentSessionId,
     isLoadingSessionMessages,
+    hasSessionLoadFailed,
+    retrySessionLoad,
     isLoadingMoreMessages,
     hasMoreMessages,
     totalMessages,
@@ -242,6 +254,7 @@ function ChatInterface({
     editQueuedDraft,
     deleteQueuedDraft,
     handleVoiceTranscript,
+    dictationBox,
     handleInputChange,
     handleKeyDown,
     handlePaste,
@@ -286,6 +299,23 @@ function ChatInterface({
     resolvePermissionModeForProvider,
   });
 
+  // Live voice is app-level. This chat tells it which session is on screen and how to send into it through the same submit path as a typed message.
+  const submitVoiceText = useCallback((text: string) => handleVoiceTranscript(text, true), [handleVoiceTranscript]);
+  useRegisterVoiceTarget({
+    sessionId: currentSessionId || selectedSession?.id || null,
+    sessionName: selectedSession?.summary || selectedSession?.title || selectedSession?.name || null,
+    projectName: selectedProject?.displayName || null,
+    submitText: submitVoiceText,
+  });
+  const liveVoice = useLiveVoiceController();
+  // A voice session shows what was said out loud between Claude's rows.
+  const voiceSessionId = currentSessionId || selectedSession?.id || null;
+  const voiceEntries = useVoiceTranscript(voiceSessionId, voiceSessionId !== null && liveVoice.voiceSessionIds.has(voiceSessionId));
+  const displayedMessages = useMemo(
+    () => (voiceEntries.length > 0 ? mergeVoiceRows(visibleMessages, voiceEntries, hasMoreMessages) : visibleMessages),
+    [visibleMessages, voiceEntries, hasMoreMessages],
+  );
+
   // On WebSocket reconnect, request a bounded persisted-tail sync (deferred
   // while Chat is hidden), then re-subscribe — the
   // `chat_subscribed` ack restores or clears the activity indicator, replays
@@ -325,7 +355,7 @@ function ChatInterface({
   });
 
   useEffect(() => {
-    if (!canAbortSession) {
+    if (!canAbortSession || !isFocused) {
       return;
     }
 
@@ -342,7 +372,7 @@ function ChatInterface({
     return () => {
       document.removeEventListener('keydown', handleGlobalEscape, { capture: true });
     };
-  }, [canAbortSession, handleAbortSession]);
+  }, [canAbortSession, handleAbortSession, isFocused]);
 
   useEffect(() => {
     return () => {
@@ -479,6 +509,8 @@ function ChatInterface({
             onWheel={handleScroll}
             onTouchMove={handleScroll}
             isLoadingSessionMessages={isLoadingSessionMessages}
+            hasSessionLoadFailed={hasSessionLoadFailed}
+            onRetrySessionLoad={retrySessionLoad}
             isProcessing={isProcessing}
             hasActivityIndicator={hasActivityIndicator}
             chatMessages={chatMessages}
@@ -500,7 +532,7 @@ function ChatInterface({
             hasMoreMessages={hasMoreMessages}
             totalMessages={totalMessages}
             sessionMessagesCount={chatMessages.length}
-            visibleMessages={visibleMessages}
+            visibleMessages={displayedMessages}
             loadEarlierMessages={loadEarlierMessages}
             loadAllMessages={loadAllMessages}
             allMessagesLoaded={allMessagesLoaded}
@@ -598,6 +630,8 @@ function ChatInterface({
           textareaRef={textareaRef}
           input={input}
           onVoiceTranscript={handleVoiceTranscript}
+          dictationBox={dictationBox}
+          liveVoice={liveVoice}
           onInputChange={handleInputChange}
           onTextareaClick={handleTextareaClick}
           onTextareaKeyDown={handleKeyDown}

@@ -2,7 +2,9 @@ import { useEffect, useRef } from 'react';
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 
 import type { BackgroundTask,ServerEvent,MarkSessionIdle,MarkSessionProcessing,PendingPermissionRequest,ProjectSession,LLMProvider,NormalizedMessage } from '@/shared/types';
+import { maybeAutoSpeak } from '@/modules/chat/utils/autoSpeak';
 import { showCompletionTitleIndicator } from '@/modules/chat/utils/pageTitleNotification';
+import { useOptionalUiPreferences } from '@/shared/context/UiPreferencesContext';
 import { playChatCompletionSound, playNotificationSound } from '@/shared/utils';
 import type { SessionStore } from '@/modules/chat/hooks/useSessionStore';
 
@@ -92,6 +94,13 @@ export function useChatRealtimeHandlers({
   activeViewSessionIdRef.current = selectedSession?.id || currentSessionId || null;
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
+  // Read by the listener when a turn completes, to decide whether to read the reply aloud.
+  const voiceEnabled = useOptionalUiPreferences()?.voiceEnabled ?? false;
+  const voiceEnabledRef = useRef(voiceEnabled);
+
+  useEffect(() => {
+    voiceEnabledRef.current = voiceEnabled;
+  }, [voiceEnabled]);
 
   // Keep the latest pending-permission snapshot available to the websocket
   // listener so back-to-back permission events can dedupe and re-arm the
@@ -227,10 +236,20 @@ export function useChatRealtimeHandlers({
       /*  Provider NormalizedMessage handling                            */
       /* -------------------------------------------------------------- */
 
+      // The stream buffer belongs to the viewed session. Another session's
+      // deltas used to land in it too, so two sessions streaming at once (a
+      // background run, or the other pane in split view) mixed their replies.
+      const isOtherSession = Boolean(sid) && sid !== activeViewSessionId;
+
       // --- Streaming: buffer for performance ---
       if (msg.kind === 'stream_delta') {
         const text = (msg.content as string) || '';
         if (!text) return;
+        // Route non-viewed sessions straight to the store, unbuffered.
+        if (isOtherSession) {
+          sessionStore.appendRealtime(sid as string, msg as unknown as NormalizedMessage);
+          return;
+        }
         accumulatedStreamRef.current += text;
         if (!streamTimerRef.current) {
           streamTimerRef.current = window.setTimeout(() => {
@@ -240,14 +259,14 @@ export function useChatRealtimeHandlers({
             }
           }, 100);
         }
-        // Also route to store for non-active sessions
-        if (sid && sid !== activeViewSessionId) {
-          sessionStore.appendRealtime(sid, msg as unknown as NormalizedMessage);
-        }
         return;
       }
 
       if (msg.kind === 'stream_end') {
+        if (isOtherSession) {
+          sessionStore.finalizeStreaming(sid as string);
+          return;
+        }
         if (streamTimerRef.current) {
           clearTimeout(streamTimerRef.current);
           streamTimerRef.current = null;
@@ -277,16 +296,19 @@ export function useChatRealtimeHandlers({
       // --- UI side effects for specific kinds ---
       switch (msg.kind) {
         case 'complete': {
-          // Flush any remaining streaming state
-          if (streamTimerRef.current) {
-            clearTimeout(streamTimerRef.current);
-            streamTimerRef.current = null;
+          // Flush any remaining streaming state, unless the run that finished
+          // is not the viewed one and so never wrote to the buffer.
+          if (!isOtherSession) {
+            if (streamTimerRef.current) {
+              clearTimeout(streamTimerRef.current);
+              streamTimerRef.current = null;
+            }
+            if (sid && accumulatedStreamRef.current) {
+              sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
+              sessionStore.finalizeStreaming(sid);
+            }
+            accumulatedStreamRef.current = '';
           }
-          if (sid && accumulatedStreamRef.current) {
-            sessionStore.updateStreaming(sid, accumulatedStreamRef.current, provider);
-            sessionStore.finalizeStreaming(sid);
-          }
-          accumulatedStreamRef.current = '';
 
           // `complete` is the unified terminal event — every provider run ends
           // with exactly one, regardless of success, failure, or abort. The
@@ -308,6 +330,11 @@ export function useChatRealtimeHandlers({
           if (msg.success !== false) {
             showCompletionTitleIndicator();
             void playChatCompletionSound();
+            // Voice chat: speak the reply in the conversation on screen. The rows of this
+            // turn are already in the store, the transcript reload below only re-syncs them.
+            if (voiceEnabledRef.current && sid && sid === activeViewSessionId) {
+              maybeAutoSpeak(sessionStore.getMessages(sid));
+            }
           }
 
           // The session id is stable for the whole conversation (allocated

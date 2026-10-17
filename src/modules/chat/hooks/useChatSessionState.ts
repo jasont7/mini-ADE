@@ -171,6 +171,11 @@ export function useChatSessionState({
 }: UseChatSessionStateArgs) {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(selectedSession?.id || null);
   const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
+  // The session whose last transcript request failed (an HTTP error, or the
+  // request timing out). Without it a failed load looks like an empty session,
+  // or for a running one like a spinner that never ends. Keyed by session so a
+  // failure cannot follow the user into the next session they open.
+  const [failedLoadSessionId, setFailedLoadSessionId] = useState<string | null>(null);
   const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [totalMessages, setTotalMessages] = useState(0);
@@ -601,6 +606,50 @@ export function useChatSessionState({
     });
   }, [lastSeqRef, selectedProject, selectedSession, sendMessage, statusCheckSentAtRef, ws]);
 
+  /**
+   * Loads a session's whole transcript into the store, in one request. Paging
+   * it in meant the reader had to ask for older messages and wait, and every
+   * prepend risked moving the viewport; with nothing prepended after open, the
+   * position cannot shift.
+   */
+  const fetchSessionTranscript = useCallback((sessionId: string) => {
+    setIsLoadingSessionMessages(true);
+    setFailedLoadSessionId((previous) => (previous === sessionId ? null : previous));
+    sessionStore.fetchFromServer(sessionId, {
+      limit: null,
+      offset: 0,
+      canRequest: () => (
+        isActiveRef.current
+        && activeSessionIdRef.current === sessionId
+      ),
+    }).then(slot => {
+      if (slot) {
+        setHasMoreMessages(slot.hasMore);
+        setTotalMessages(slot.total);
+        messagesOffsetRef.current = slot.offset;
+        if (slot.tokenUsage !== undefined) {
+          setTokenBudget((slot.tokenUsage as Record<string, unknown> | null) ?? null);
+        }
+        // The store reports a failed request through the slot rather than by
+        // rejecting, so this is where a failure becomes visible.
+        if (slot.status === 'error') {
+          setFailedLoadSessionId(sessionId);
+        }
+      }
+      setIsLoadingSessionMessages(false);
+    }).catch(() => {
+      setFailedLoadSessionId(sessionId);
+      setIsLoadingSessionMessages(false);
+    });
+  }, [sessionStore]);
+
+  /** Requests the open session's transcript again, after a failed or stalled load. */
+  const retrySessionLoad = useCallback(() => {
+    if (selectedSession?.id) {
+      fetchSessionTranscript(selectedSession.id);
+    }
+  }, [fetchSessionTranscript, selectedSession?.id]);
+
   // Main session loading effect — store-based.
   //
   // The dependency list is deliberately narrower than the values the body
@@ -678,31 +727,9 @@ export function useChatSessionState({
     lastLoadedSessionKeyRef.current = sessionKey;
 
     // Fetch from server → store updates → chatMessages re-derives automatically
-    setIsLoadingSessionMessages(true);
-    // The whole transcript, in one request. Paging it in meant the reader had to
-    // ask for older messages and wait, and every prepend risked moving the
-    // viewport; with nothing prepended after open, the position cannot shift.
-    sessionStore.fetchFromServer(selectedSessionId, {
-      limit: null,
-      offset: 0,
-      canRequest: () => (
-        isActiveRef.current
-        && activeSessionIdRef.current === selectedSessionId
-      ),
-    }).then(slot => {
-      if (slot) {
-        setHasMoreMessages(slot.hasMore);
-        setTotalMessages(slot.total);
-        messagesOffsetRef.current = slot.offset;
-        if (slot.tokenUsage !== undefined) {
-          setTokenBudget((slot.tokenUsage as Record<string, unknown> | null) ?? null);
-        }
-      }
-      setIsLoadingSessionMessages(false);
-    }).catch(() => {
-      setIsLoadingSessionMessages(false);
-    });
+    fetchSessionTranscript(selectedSessionId);
   }, [
+    fetchSessionTranscript,
     isActive,
     resetStreamingState,
     requestLatestMessages,
@@ -1033,6 +1060,8 @@ export function useChatSessionState({
     currentSessionId,
     setCurrentSessionId,
     isLoadingSessionMessages,
+    hasSessionLoadFailed: failedLoadSessionId !== null && failedLoadSessionId === selectedSession?.id,
+    retrySessionLoad,
     isLoadingMoreMessages,
     hasMoreMessages,
     totalMessages,

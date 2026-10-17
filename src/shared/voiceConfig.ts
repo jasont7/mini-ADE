@@ -14,6 +14,11 @@ export type VoiceConfig = {
   ttsModel: string;
   ttsVoice: string;
   ttsFormat: string;
+  /**
+   * When a finished reply is read aloud without a tap: 'voice' (only after a message that was
+   * spoken, i.e. its transcript carries the voice marker), 'always', or 'off'.
+   */
+  autoSpeak: string;
 };
 
 export const VOICE_CONFIG_STORAGE_KEY = 'voiceConfig';
@@ -28,6 +33,7 @@ export const VOICE_CONFIG_DEFAULTS: VoiceConfig = {
   ttsModel: '',
   ttsVoice: '',
   ttsFormat: '',
+  autoSpeak: 'voice',
 };
 
 export function readVoiceConfig(): VoiceConfig {
@@ -60,4 +66,26 @@ export function voiceConfigHeaders(): Record<string, string> {
   if (c.ttsVoice) h['x-voice-tts-voice'] = c.ttsVoice;
   if (c.ttsFormat.trim()) h['x-voice-tts-format'] = c.ttsFormat.trim();
   return h;
+}
+
+/** localStorage key of the Gemini Live voice chosen in Settings. */
+export const GEMINI_VOICE_STORAGE_KEY = 'geminiLiveVoice';
+
+/** The saved Gemini Live voice, or null to let the server use its default. A new voice session reads this when it starts. */
+export function readGeminiVoice(): string | null {
+  try {
+    return localStorage.getItem(GEMINI_VOICE_STORAGE_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Saves the Gemini Live voice for later voice sessions. An empty value clears it. */
+export function writeGeminiVoice(voice: string): void {
+  try {
+    if (voice) localStorage.setItem(GEMINI_VOICE_STORAGE_KEY, voice);
+    else localStorage.removeItem(GEMINI_VOICE_STORAGE_KEY);
+  } catch {
+    /* ignore persistence errors */
+  }
 }

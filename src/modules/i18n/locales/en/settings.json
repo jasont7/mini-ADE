@@ -55,6 +55,11 @@
     "description": "Speech-to-text input and read-aloud, via an OpenAI-compatible audio backend.",
     "enable": "Enable voice",
     "enableDescription": "Show the mic button and the read-aloud button on messages.",
+    "autoSpeak": "Speak replies",
+    "autoSpeakVoice": "After voice messages",
+    "autoSpeakAlways": "Always",
+    "autoSpeakOff": "Off",
+    "autoSpeakDescription": "Reads the finished reply aloud in the chat on screen, so you can talk back and forth without tapping. Tapping the mic stops it.",
     "backendTitle": "Backend",
     "backendDescription": "Point at OpenAI, Groq, or a local server (LocalAI, Speaches, Kokoro-FastAPI). Leave blank to use the server default.",
     "baseUrl": "Base URL",
@@ -63,7 +68,10 @@
     "ttsModel": "Text-to-speech model",
     "voice": "Voice",
     "format": "Audio format",
-    "note": "A custom base URL is called directly by your browser and must allow browser CORS requests. Leave it blank to use the server-configured backend."
+    "note": "A custom base URL is called directly by your browser and must allow browser CORS requests. Leave it blank to use the server-configured backend.",
+    "geminiVoice": "Gemini Live voice",
+    "geminiVoiceDefault": "Server default",
+    "geminiVoiceDescription": "Used by the next Gemini Live session. Saved in this browser."
   },
   "quickSettings": {
     "title": "Quick Settings",

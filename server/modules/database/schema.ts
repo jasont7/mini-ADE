@@ -256,6 +256,45 @@ CREATE TABLE IF NOT EXISTS superseded_provider_sessions (
 );
 `;
 
+/**
+ * Live voice mode of one app session ('off', 'private' or 'gemini') and the
+ * Gemini voice preset it speaks with. Keyed by the stable app session id with
+ * no foreign key on purpose: a new chat picks its mode before the first send
+ * creates the sessions row.
+ */
+export const SESSION_VOICE_SETTINGS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS session_voice_settings (
+    session_id TEXT NOT NULL PRIMARY KEY,
+    mode TEXT NOT NULL DEFAULT 'off',
+    gemini_voice TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+`;
+
+/**
+ * Voice sessions and their saved conversation. `voice_sessions` marks which
+ * app sessions are voice sessions, `voice_transcript_entries` keeps what was
+ * said and done in them, one row per entry. Entry ids come from the client,
+ * so a retried write never duplicates a row. No foreign keys on purpose: the
+ * sessions row may not exist yet when the first entry is written.
+ */
+export const VOICE_SESSIONS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS voice_sessions (
+    session_id TEXT NOT NULL PRIMARY KEY,
+    name TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS voice_transcript_entries (
+    id TEXT NOT NULL PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    text TEXT NOT NULL,
+    at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_voice_transcript_session ON voice_transcript_entries(session_id, at);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -297,6 +336,10 @@ CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id);
 -- Creating it here can fail on upgraded installs where the legacy sessions table has no project_path.
 
 ${LAST_SCANNED_AT_SQL}
+
+${SESSION_VOICE_SETTINGS_TABLE_SCHEMA_SQL}
+
+${VOICE_SESSIONS_TABLE_SCHEMA_SQL}
 
 ${APP_CONFIG_TABLE_SCHEMA_SQL}
 

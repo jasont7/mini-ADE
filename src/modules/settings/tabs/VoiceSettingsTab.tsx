@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { InputHTMLAttributes } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -5,6 +6,8 @@ import SettingsSection from '@/modules/settings/SettingsSection';
 import SettingsToggle from '@/modules/settings/SettingsToggle';
 import { useUiPreferences, useSetUiPreference } from '@/shared/context/UiPreferencesContext';
 import { useVoiceConfig } from '@/modules/settings/hooks/useVoiceConfig';
+import { useGeminiLiveStatus } from '@/shared/hooks/useGeminiLiveStatus';
+import { readGeminiVoice, writeGeminiVoice } from '@/shared/voiceConfig';
 
 const inputClass =
   'w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
@@ -25,6 +28,9 @@ export default function VoiceSettingsTab() {
   const setPreference = useSetUiPreference();
   const { config, update } = useVoiceConfig();
   const voiceEnabled = preferences.voiceEnabled;
+  const geminiStatus = useGeminiLiveStatus();
+  // The saved Gemini Live voice, mirrored locally so the select responds at once. Empty means the server default.
+  const [geminiVoice, setGeminiVoice] = useState(() => readGeminiVoice() ?? '');
 
   return (
     <div className="space-y-8">
@@ -40,6 +46,40 @@ export default function VoiceSettingsTab() {
             ariaLabel={t('voiceSettings.enable')}
           />
         </div>
+        {voiceEnabled && (
+          <label className="block space-y-1">
+            <span className="text-sm font-medium text-foreground">{t('voiceSettings.autoSpeak')}</span>
+            <select
+              className={inputClass}
+              value={config.autoSpeak || 'voice'}
+              onChange={(e) => update({ autoSpeak: e.target.value })}
+            >
+              <option value="voice">{t('voiceSettings.autoSpeakVoice')}</option>
+              <option value="always">{t('voiceSettings.autoSpeakAlways')}</option>
+              <option value="off">{t('voiceSettings.autoSpeakOff')}</option>
+            </select>
+            <span className="block text-xs text-muted-foreground">{t('voiceSettings.autoSpeakDescription')}</span>
+          </label>
+        )}
+        {geminiStatus?.configured && (
+          <label className="block space-y-1">
+            <span className="text-sm font-medium text-foreground">{t('voiceSettings.geminiVoice')}</span>
+            <select
+              className={inputClass}
+              value={geminiVoice}
+              onChange={(e) => {
+                setGeminiVoice(e.target.value);
+                writeGeminiVoice(e.target.value);
+              }}
+            >
+              <option value="">{t('voiceSettings.geminiVoiceDefault')}</option>
+              {geminiStatus.voices.map((voice) => (
+                <option key={voice} value={voice}>{voice}</option>
+              ))}
+            </select>
+            <span className="block text-xs text-muted-foreground">{t('voiceSettings.geminiVoiceDescription')}</span>
+          </label>
+        )}
       </SettingsSection>
 
       {voiceEnabled && (

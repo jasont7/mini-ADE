@@ -25,6 +25,9 @@ export function verifyWebSocketClient(
   if (loggedUrl.searchParams.has('token')) {
     loggedUrl.searchParams.set('token', 'REDACTED');
   }
+  if (loggedUrl.searchParams.has('voice_key')) {
+    loggedUrl.searchParams.set('voice_key', 'REDACTED');
+  }
 
   console.log('WebSocket connection attempt to:', `${loggedUrl.pathname}${loggedUrl.search}`);
 

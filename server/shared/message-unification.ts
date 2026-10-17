@@ -305,13 +305,35 @@ function readChecklistSignature(message: NormalizedMessage): string {
  */
 const MAX_TOOL_RESULT_CONTENT = 40_000;
 
+/**
+ * A run this long of nothing but base64 characters is encoded binary: in
+ * practice a screenshot or an image the agent read. Prose, logs and source code
+ * all break up far sooner on spaces and punctuation.
+ */
+const ENCODED_DATA_RUN = /[A-Za-z0-9+/]{1024,}={0,2}/g;
+
+/**
+ * Replaces encoded binary with a short marker.
+ *
+ * Capping alone is not enough for it: a capped image is still 40 KB of
+ * undecodable text, and a browser-automation session takes hundreds of
+ * screenshots, each recorded twice (the result text and its structured copy).
+ * One such session shipped 34 MB of these fragments out of 39 MB in total,
+ * which a phone could not load. The transcript never draws them, so nothing is
+ * lost by dropping them outright.
+ */
+function omitEncodedData(value: string): string {
+  return value.replace(ENCODED_DATA_RUN, (run) => `[${run.length} characters of encoded data omitted]`);
+}
+
 function truncateOutput(value: string): string {
-  if (value.length <= MAX_TOOL_RESULT_CONTENT) {
-    return value;
+  const compact = omitEncodedData(value);
+  if (compact.length <= MAX_TOOL_RESULT_CONTENT) {
+    return compact;
   }
 
-  const omitted = value.length - MAX_TOOL_RESULT_CONTENT;
-  return `${value.slice(0, MAX_TOOL_RESULT_CONTENT)}\n… ${omitted} more characters`;
+  const omitted = compact.length - MAX_TOOL_RESULT_CONTENT;
+  return `${compact.slice(0, MAX_TOOL_RESULT_CONTENT)}\n… ${omitted} more characters`;
 }
 
 /**

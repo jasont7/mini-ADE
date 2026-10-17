@@ -148,7 +148,7 @@ export type PromptInputButtonProps = {
   tooltip?: PromptInputButtonTooltip;
 } & React.ButtonHTMLAttributes<HTMLButtonElement>;
 
-/** Icon button in the composer footer, used by ChatComposer and VoiceInputButton. */
+/** Icon button in the composer footer, used by ChatComposer and VoiceButtons. */
 export const PromptInputButton = React.forwardRef<HTMLButtonElement, PromptInputButtonProps>(
   ({ className, tooltip, children, ...props }, ref) => {
     const button = (

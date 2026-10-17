@@ -18,6 +18,10 @@ export type {
   QueuedSessionMessageRecord,
   SessionDraftRecord,
 } from '@/modules/database/repositories/session-drafts.db.js';
+// sessionVoiceSettingsDb: used by Voice to persist each session's live voice mode.
+export { sessionVoiceSettingsDb } from '@/modules/database/repositories/session-voice-settings.db.js';
+// voiceTranscriptDb: used by Voice to mark voice sessions and keep what was said in them.
+export { voiceTranscriptDb } from '@/modules/database/repositories/voice-transcripts.db.js';
 export { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
 export { userDb } from '@/modules/database/repositories/users.js';
 // userPreferencesDb: used by the User module to persist the settings that used to live in browser localStorage.

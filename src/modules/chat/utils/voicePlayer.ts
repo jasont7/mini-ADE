@@ -87,6 +87,12 @@ class VoicePlayer {
     void this.play(id, content);
   }
 
+  // Play `content` now, replacing whatever is playing. Used for automatic read-aloud, where
+  // a second call for the same reply must not act as a stop the way toggle() does.
+  speak(content: string) {
+    void this.play(voiceId(content), content);
+  }
+
   stop() {
     this.token++; // ignore any stale in-flight result
     this.abortActive(); // and actually cancel the network request
