@@ -28,6 +28,12 @@ export type UserPreferences = {
   codeEditorSettings: unknown;
   uiPreferences: unknown;
   selectedProvider: string;
+  /** Per-project tile icons keyed by project id; see ProjectIcon. */
+  projectIcons: unknown;
+  /** Project ids in the order the user dragged the rail into. */
+  projectOrder: unknown;
+  /** Per-project tile background colours keyed by project id; see PROJECT_TILE_COLORS. */
+  projectColors: unknown;
 };
 
 export type UserPreferenceKey = keyof UserPreferences;
@@ -67,6 +73,12 @@ const LEGACY_STORAGE_KEYS: Record<UserPreferenceKey, string> = {
   codeEditorSettings: '',
   uiPreferences: 'uiPreferences',
   selectedProvider: 'selected-provider',
+  // Unused: project icons arrived after the move to the server, so there is no
+  // older local copy to migrate.
+  projectIcons: '',
+  // Unused, for the same reason as projectIcons.
+  projectOrder: '',
+  projectColors: '',
 };
 
 const PREFERENCE_KEYS = Object.keys(LEGACY_STORAGE_KEYS) as UserPreferenceKey[];

@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, type Dispatch, type SetStateAction } from 'react';
 
-import { ChatInterface } from '@/modules/chat';
 import { FileTree } from '@/modules/file-tree';
 import { StandaloneShell } from '@/modules/standalone-shell';
 import { GitPanel } from '@/modules/git-panel';
@@ -14,7 +13,8 @@ import { useFileOpenResolver } from '@/modules/project-workspace/hooks/useFileOp
 import { EditorSidebar, useEditorSidebar } from '@/modules/code-editor';
 import WorkspaceHeader from '@/modules/project-workspace/WorkspaceHeader';
 import WorkspaceStateView from '@/modules/project-workspace/WorkspaceStateView';
-import WorkspaceErrorBoundary from '@/modules/project-workspace/WorkspaceErrorBoundary';
+import WorkspaceChatPanes from '@/modules/project-workspace/WorkspaceChatPanes';
+import type { useProjectSplitViewState } from '@/modules/project-workspace/context/ProjectsStateContext';
 
 type WorkspaceMainProps = {
   selectedProject: Project | null;
@@ -28,6 +28,9 @@ type WorkspaceMainProps = {
   isLoading: boolean;
   onNavigateToSession: (targetSessionId: string, options?: SessionNavigationOptions) => void;
   onSessionEstablished: (sessionId: string, context: SessionEstablishedContext) => void;
+  /** Same as onSessionEstablished, for a chat started in split view's right pane. */
+  onSecondarySessionEstablished: (sessionId: string, context: SessionEstablishedContext) => void;
+  splitView: ReturnType<typeof useProjectSplitViewState>;
   onShowSettings: (tab?: SettingsMainTab) => void;
   externalMessageUpdate: number;
   newSessionTrigger: number;
@@ -37,7 +40,7 @@ type WorkspaceMainProps = {
   onProjectsRefresh: () => void;
 };
 
-/** Rendered by ProjectMainRegion to show the selected project's active tab: chat, files, shell, git, tasks, browser or a plugin. */
+/** Rendered by ProjectMainRegion to show the selected project's active view: chat (one pane or split), files, shell, git, tasks, browser or a plugin. */
 function WorkspaceMain({
   selectedProject,
   selectedSession,
@@ -50,6 +53,8 @@ function WorkspaceMain({
   isLoading,
   onNavigateToSession,
   onSessionEstablished,
+  onSecondarySessionEstablished,
+  splitView,
   onShowSettings,
   externalMessageUpdate,
   newSessionTrigger,
@@ -127,41 +132,49 @@ function WorkspaceMain({
     return <WorkspaceStateView mode="empty" isMobile={isMobile} onMenuClick={onMenuClick} />;
   }
 
+  // In split view the header names the pane being worked in.
+  const isSecondaryFocused = splitView.isSplitActive && splitView.focusedPane === 'secondary';
+  const headerProject = isSecondaryFocused ? splitView.secondaryProject ?? selectedProject : selectedProject;
+  const headerSession = isSecondaryFocused ? splitView.secondarySession : selectedSession;
+
   return (
     <div className="flex h-full flex-col">
       <WorkspaceHeader
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        selectedProject={selectedProject}
-        selectedSession={selectedSession}
+        selectedProject={headerProject}
+        selectedSession={headerSession}
         shouldShowTasksTab={shouldShowTasksTab}
         shouldShowBrowserTab={shouldShowBrowserTab}
         isMobile={isMobile}
         onMenuClick={onMenuClick}
+        showSplitToggle={splitView.isSplitAvailable && activeTab === 'chat'}
+        isSplitActive={splitView.isSplitActive}
+        onToggleSplit={splitView.toggleSplit}
       />
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className={`flex min-h-0 min-w-[200px] flex-col overflow-hidden ${editorExpanded ? 'hidden' : ''} flex-1`}>
           <div className={`h-full ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
-            <WorkspaceErrorBoundary showDetails>
-              <ChatInterface
-                isActive={activeTab === 'chat'}
-                selectedProject={selectedProject}
-                selectedSession={selectedSession}
-                ws={ws}
-                sendMessage={sendMessage}
-                onFileOpen={handleFileOpen}
-                onNavigateToSession={onNavigateToSession}
-                onSessionEstablished={onSessionEstablished}
-                onShowSettings={onShowSettings}
-                showRawParameters={showRawParameters}
-                showThinking={showThinking}
-                sendByCtrlEnter={sendByCtrlEnter}
-                externalMessageUpdate={externalMessageUpdate}
-                newSessionTrigger={newSessionTrigger}
-                onShowAllTasks={tasksEnabled ? showAllTasks : null}
-              />
-            </WorkspaceErrorBoundary>
+            <WorkspaceChatPanes
+              isActive={activeTab === 'chat'}
+              selectedProject={selectedProject}
+              selectedSession={selectedSession}
+              splitView={splitView}
+              ws={ws}
+              sendMessage={sendMessage}
+              onFileOpen={handleFileOpen}
+              onNavigateToSession={onNavigateToSession}
+              onSessionEstablished={onSessionEstablished}
+              onSecondarySessionEstablished={onSecondarySessionEstablished}
+              onShowSettings={onShowSettings}
+              showRawParameters={showRawParameters}
+              showThinking={showThinking}
+              sendByCtrlEnter={sendByCtrlEnter}
+              externalMessageUpdate={externalMessageUpdate}
+              newSessionTrigger={newSessionTrigger}
+              onShowAllTasks={tasksEnabled ? showAllTasks : null}
+            />
           </div>
 
           {activeTab === 'files' && (

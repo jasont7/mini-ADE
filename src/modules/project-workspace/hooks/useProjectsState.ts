@@ -59,6 +59,11 @@ type RegisterOptimisticSessionArgs = {
   provider: LLMProvider;
   project: Project;
   summary?: string | null;
+  /**
+   * Also make it the selected (left pane) session. False for a session created
+   * in split view's right pane, which only needs its sidebar row.
+   */
+  select?: boolean;
 };
 
 /**
@@ -541,6 +546,7 @@ export function useProjectsState({
     provider,
     project,
     summary,
+    select = true,
   }: RegisterOptimisticSessionArgs) => {
     if (!newSessionId || !project?.projectId) {
       return;
@@ -593,6 +599,10 @@ export function useProjectsState({
         candidate.projectId === existingProject.projectId ? updatedProject : candidate,
       );
     });
+
+    if (!select) {
+      return;
+    }
 
     setSelectedSession((previousSession) => (
       previousSession?.id === newSessionId

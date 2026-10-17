@@ -1,6 +1,6 @@
 import { memo, useCallback } from 'react';
 
-import { useProjectMainState } from '@/modules/project-workspace/context/ProjectsStateContext';
+import { useProjectMainState, useProjectSplitViewState } from '@/modules/project-workspace/context/ProjectsStateContext';
 import type { SessionEstablishedContext, SessionNavigationOptions,ProjectWorkspaceShellProps } from '@/shared/types';
 import WorkspaceMain from '@/modules/project-workspace/WorkspaceMain';
 
@@ -25,6 +25,7 @@ function ProjectMainRegion({
     handleProjectSelect,
     refreshProjectsSilently,
   } = useProjectMainState();
+  const splitView = useProjectSplitViewState();
 
   const handleOpenSidebar = useCallback(() => {
     setSidebarOpen(true);
@@ -44,6 +45,15 @@ function ProjectMainRegion({
     registerOptimisticSession({ sessionId: targetSessionId, ...context });
   }, [registerOptimisticSession]);
 
+  // The right pane's new chat still needs its sidebar row, but must not take
+  // over the left pane's selection.
+  const handleSecondarySessionEstablished = useCallback((
+    targetSessionId: string,
+    context: SessionEstablishedContext,
+  ) => {
+    registerOptimisticSession({ sessionId: targetSessionId, ...context, select: false });
+  }, [registerOptimisticSession]);
+
   const handleProjectsRefresh = useCallback(() => {
     void refreshProjectsSilently();
   }, [refreshProjectsSilently]);
@@ -61,6 +71,8 @@ function ProjectMainRegion({
       isLoading={isLoadingProjects}
       onNavigateToSession={handleNavigateToSession}
       onSessionEstablished={handleSessionEstablished}
+      onSecondarySessionEstablished={handleSecondarySessionEstablished}
+      splitView={splitView}
       onShowSettings={openSettings}
       externalMessageUpdate={externalMessageUpdate}
       newSessionTrigger={newSessionTrigger}

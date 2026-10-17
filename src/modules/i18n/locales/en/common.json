@@ -24,7 +24,8 @@
     "git": "Source Control",
     "tasks": "Tasks",
     "browser": "Browser",
-    "computer": "Computer"
+    "computer": "Computer",
+    "views": "Workspace views"
   },
   "status": {
     "loading": "Loading...",
@@ -349,5 +350,15 @@
     "closeLoginModal": "Close login modal",
     "pluginLoadFailed": "Plugin failed to load: {{error}}"
   },
-  "cancel": "Cancel"
+  "cancel": "Cancel",
+  "splitView": {
+    "open": "Split view",
+    "close": "Close split view",
+    "resize": "Resize split view",
+    "resizeHint": "Drag to resize, double-click to reset",
+    "loading": "Opening session…",
+    "leftPane": "Left chat",
+    "rightPane": "Right chat",
+    "focused": "Focused"
+  }
 }

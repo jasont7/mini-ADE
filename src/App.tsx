@@ -6,6 +6,7 @@ import { UiPreferencesProvider } from '@/shared/context/UiPreferencesContext';
 import { AuthProvider, ProtectedRoute } from '@/modules/auth';
 import { TaskMasterProvider,TasksSettingsProvider } from '@/modules/task-master';
 import { WebSocketProvider } from '@/shared/context/WebSocketContext';
+import { LiveVoiceProvider } from '@/modules/chat';
 import { PluginsProvider } from '@/modules/plugins';
 import { ProjectWorkspaceRoute } from '@/modules/project-workspace';
 import { i18n } from '@/modules/i18n';
@@ -119,12 +120,14 @@ export default function App() {
               <TasksSettingsProvider>
                 <TaskMasterProvider>
                 <ProtectedRoute>
-                  <Router basename={routerBasename}>
-                    <Routes>
-                      <Route path="/" element={<ProjectWorkspaceRoute />} />
-                      <Route path="/session/:sessionId" element={<ProjectWorkspaceRoute />} />
-                    </Routes>
-                  </Router>
+                  <LiveVoiceProvider>
+                    <Router basename={routerBasename}>
+                      <Routes>
+                        <Route path="/" element={<ProjectWorkspaceRoute />} />
+                        <Route path="/session/:sessionId" element={<ProjectWorkspaceRoute />} />
+                      </Routes>
+                    </Router>
+                  </LiveVoiceProvider>
                 </ProtectedRoute>
                 </TaskMasterProvider>
               </TasksSettingsProvider>

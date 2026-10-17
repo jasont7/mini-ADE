@@ -84,6 +84,14 @@ export function useUiPreferences(): UiPreferences {
   return preferences;
 }
 
+/**
+ * Like useUiPreferences, but null outside a provider instead of throwing. For hooks that also
+ * run bare in tests and only need a preference as an optional extra.
+ */
+export function useOptionalUiPreferences(): UiPreferences | null {
+  return useContext(UiPreferencesStateContext);
+}
+
 /** Stable setter, so writers never re-render on a preference change. */
 export function useSetUiPreference(): UiPreferenceActions['setPreference'] {
   const actions = useContext(UiPreferencesActionsContext);

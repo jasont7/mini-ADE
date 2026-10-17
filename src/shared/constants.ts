@@ -1,14 +1,59 @@
 import {
   Bell,
+  BookOpen,
   Bot,
+  Boxes,
+  Brain,
+  Bug,
+  Building2,
+  Calendar,
+  Camera,
+  ChartLine,
+  Cloud,
+  Code2,
+  Cpu,
+  Database,
+  Dna,
+  Film,
+  FlaskConical,
+  Gamepad2,
   GitBranch,
+  Globe,
+  GraduationCap,
+  Hammer,
+  Heart,
+  House,
+  Image,
   Info,
   KeyRound,
+  Laptop,
+  Leaf,
   ListChecks,
+  Lock,
+  Mail,
+  MessageSquare,
+  Microscope,
   MonitorPlay,
+  Music,
+  Package,
   Palette,
+  PenTool,
+  Plane,
   Plug,
+  Rocket,
+  Server,
+  Shield,
+  ShoppingCart,
+  Smartphone,
+  Sparkles,
+  Star,
+  Terminal,
+  Users,
+  Wallet,
+  Wrench,
+  Zap,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ComponentType } from 'react';
 
 import type { FileStatusCode, LLMProvider, McpProvider, McpScope, McpTransport, SettingsMainTab } from '@/shared/types';
@@ -199,6 +244,92 @@ export const CODE_EDITOR_DEFAULTS = {
   fontSize: '12',
 } as const;
 
+
+// ---------------------------
+
+//----------------- PROJECT TILE ICONS ------------
+
+/**
+ * The line icons a project tile can show instead of its initials, by the name
+ * stored in a ProjectIcon. The sidebar's picker lists them in this order and
+ * its tiles draw them. Removing an entry turns tiles that use it back into
+ * initials, so add freely but remove with care.
+ */
+export const PROJECT_ICON_GLYPHS: Record<string, LucideIcon> = {
+  code: Code2,
+  terminal: Terminal,
+  rocket: Rocket,
+  bot: Bot,
+  brain: Brain,
+  bug: Bug,
+  database: Database,
+  server: Server,
+  cloud: Cloud,
+  globe: Globe,
+  smartphone: Smartphone,
+  laptop: Laptop,
+  cpu: Cpu,
+  branch: GitBranch,
+  package: Package,
+  boxes: Boxes,
+  wrench: Wrench,
+  hammer: Hammer,
+  flask: FlaskConical,
+  microscope: Microscope,
+  dna: Dna,
+  graduation: GraduationCap,
+  book: BookOpen,
+  mail: Mail,
+  chat: MessageSquare,
+  camera: Camera,
+  image: Image,
+  music: Music,
+  film: Film,
+  palette: Palette,
+  pen: PenTool,
+  cart: ShoppingCart,
+  wallet: Wallet,
+  chart: ChartLine,
+  shield: Shield,
+  lock: Lock,
+  zap: Zap,
+  leaf: Leaf,
+  heart: Heart,
+  star: Star,
+  sparkles: Sparkles,
+  house: House,
+  building: Building2,
+  plane: Plane,
+  gamepad: Gamepad2,
+  users: Users,
+  calendar: Calendar,
+};
+
+/**
+ * The background colours a project tile can be given, by the key stored in the
+ * `projectColors` preference. Each is a hue plus a chroma multiplier (0 gives
+ * a neutral grey); the tile turns that into a pale fill with dark text in light
+ * mode and a deep fill with light text in dark mode, so any choice stays
+ * readable in both. The picker lists them in this order.
+ */
+export const PROJECT_TILE_COLORS: Record<string, { label: string; hue: number; chroma: number }> = {
+  red: { label: 'Red', hue: 2, chroma: 1 },
+  orange: { label: 'Orange', hue: 24, chroma: 1 },
+  amber: { label: 'Amber', hue: 40, chroma: 1 },
+  yellow: { label: 'Yellow', hue: 54, chroma: 1 },
+  lime: { label: 'Lime', hue: 80, chroma: 1 },
+  green: { label: 'Green', hue: 140, chroma: 0.9 },
+  teal: { label: 'Teal', hue: 172, chroma: 1 },
+  cyan: { label: 'Cyan', hue: 190, chroma: 1 },
+  sky: { label: 'Sky', hue: 204, chroma: 1 },
+  blue: { label: 'Blue', hue: 222, chroma: 1 },
+  indigo: { label: 'Indigo', hue: 240, chroma: 0.9 },
+  violet: { label: 'Violet', hue: 262, chroma: 1 },
+  purple: { label: 'Purple', hue: 284, chroma: 1 },
+  pink: { label: 'Pink', hue: 326, chroma: 1 },
+  rose: { label: 'Rose', hue: 346, chroma: 1 },
+  gray: { label: 'Gray', hue: 220, chroma: 0 },
+};
 
 // ---------------------------
 

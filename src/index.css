@@ -948,6 +948,32 @@
     transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
   }
 
+  /* Navigator rail: a run in flight is a dash travelling round the project
+     tile's outline. The outline stays still (rotating a rounded square makes
+     its corners swing), only the dash offset moves. */
+  @keyframes rail-orbit {
+    to { stroke-dashoffset: -100; }
+  }
+
+  .rail-orbit {
+    animation: rail-orbit 1.8s linear infinite;
+  }
+
+  /* Activity indicators (the rail's orbit, a running session's spinner) mean
+     "still working". The app-wide reduced-motion rule runs every animation
+     once, which freezes them in place where they read as "stuck". Under
+     reduced motion they fade in and out instead: change without movement.
+     The class selector outranks that rule's universal one. */
+  @keyframes activity-fade {
+    50% { opacity: 0.3; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .activity-indicator {
+      animation: activity-fade 1.6s ease-in-out infinite !important;
+    }
+  }
+
   /* Settings content fade-in transition */
   @keyframes settings-fade-in {
     from { opacity: 0; transform: translateY(4px); }

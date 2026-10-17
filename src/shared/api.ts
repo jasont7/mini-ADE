@@ -227,8 +227,6 @@ export const api = {
   sessionDetails: (sessionId: string) =>
     get(`/api/providers/sessions/${encodeURIComponent(sessionId)}`),
   runningSessions: () => get('/api/providers/sessions/running'),
-  recentConversations: ({ limit = 40, offset = 0 }: { limit?: number; offset?: number } = {}) =>
-    get(`/api/providers/sessions/recent${query({ limit, offset })}`),
   providerSessionId: (sessionId: string) =>
     get(`/api/providers/sessions/${encodeURIComponent(sessionId)}/provider-id`),
   restoreSession: (sessionId: string) => post(`/api/providers/sessions/${sessionId}/restore`),
@@ -539,6 +537,20 @@ export const api = {
         body: formData,
       }),
     tts: (text: string, options: ApiRequestOptions = {}) => post('/api/voice/tts', { text }, options),
+    geminiStatus: () => get('/api/voice/gemini/status'),
+    geminiToken: () => post('/api/voice/gemini/token'),
+    getSessionMode: (sessionId: string) =>
+      get(`/api/voice/sessions/${encodeURIComponent(sessionId)}/mode`),
+    setSessionMode: (sessionId: string, settings: { mode: string; geminiVoice: string | null }) =>
+      put(`/api/voice/sessions/${encodeURIComponent(sessionId)}/mode`, settings),
+    voiceSessions: () => get('/api/voice/sessions'),
+    registerVoiceSession: (sessionId: string, name: string | null) =>
+      put(`/api/voice/sessions/${encodeURIComponent(sessionId)}`, { name }),
+    voiceTranscript: (sessionId: string) =>
+      get(`/api/voice/sessions/${encodeURIComponent(sessionId)}/transcript`),
+    // keepalive lets a write that starts while the page closes still reach the server.
+    appendVoiceTranscript: (sessionId: string, entries: unknown[]) =>
+      post(`/api/voice/sessions/${encodeURIComponent(sessionId)}/transcript`, { entries }, { keepalive: true }),
   },
 
   system: {
@@ -563,7 +575,9 @@ function voiceDirectUrl(baseUrl: string, path: string): string {
  * drop cached synthesized audio.
  */
 export function voiceConfigSignature(): string {
-  return JSON.stringify(readVoiceConfig());
+  // Only the fields that change the audio. Toggling auto-speak must not invalidate cached clips.
+  const { baseUrl, apiKey, sttModel, ttsModel, ttsVoice, ttsFormat } = readVoiceConfig();
+  return JSON.stringify({ baseUrl, apiKey, sttModel, ttsModel, ttsVoice, ttsFormat });
 }
 
 /**

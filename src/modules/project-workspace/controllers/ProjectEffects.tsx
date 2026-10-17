@@ -1,15 +1,20 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 
+import { useRegisterVoiceDirectory } from '@/modules/chat';
 import { usePaletteOpsRegister } from '@/modules/command-palette';
 import { writeSelectedProvider } from '@/shared/selectedProvider';
 import { useProjectEffectsState } from '@/modules/project-workspace/context/ProjectsStateContext';
-import type { LLMProvider, ProjectWorkspaceShellProps } from '@/shared/types';
+import { buildVoiceSessionEntries } from '@/modules/project-workspace/utils/voiceSessionEntries';
+import { useBusySessionIdSet, useSessionProtectionActions } from '@/shared/context/SessionProtectionContext';
+import type { LLMProvider, ProjectWorkspaceShellProps, SessionEstablishedContext } from '@/shared/types';
 
-/** Headless controller rendered by ProjectWorkspaceShell to register palette operations and handle service-worker navigation messages. */
+/** Headless controller rendered by ProjectWorkspaceShell to register palette operations, hand the live voice the sidebar's sessions, and handle service-worker navigation messages. */
 export default function ProjectEffects({
   navigate,
 }: Pick<ProjectWorkspaceShellProps, 'navigate'>) {
   const {
+    projects,
+    registerOptimisticSession,
     openSettings,
     refreshProjectsSilently,
     setActiveTab,
@@ -20,6 +25,24 @@ export default function ProjectEffects({
     openSettings,
     refreshProjects: refreshProjectsSilently,
   });
+
+  const busyIds = useBusySessionIdSet();
+  const { markSessionProcessing } = useSessionProtectionActions();
+  const voiceSessions = useMemo(() => buildVoiceSessionEntries(projects), [projects]);
+  // The live voice takes him to its session the same way a tapped notification does.
+  const openSession = useCallback((sessionId: string) => {
+    setActiveTab('chat');
+    setSidebarOpen(false);
+    navigate(`/session/${sessionId}`);
+  }, [navigate, setActiveTab, setSidebarOpen]);
+  const voiceDirectory = useMemo(() => ({
+    sessions: voiceSessions,
+    busyIds,
+    openSession,
+    markSessionProcessing: (sessionId: string) => markSessionProcessing(sessionId),
+    establishSession: (sessionId: string, context: SessionEstablishedContext) => registerOptimisticSession({ sessionId, ...context }),
+  }), [voiceSessions, busyIds, openSession, markSessionProcessing, registerOptimisticSession]);
+  useRegisterVoiceDirectory(voiceDirectory);
 
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {

@@ -1,12 +1,40 @@
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useCallback, useContext, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 
 import { useProjectsState } from '@/modules/project-workspace/hooks/useProjectsState';
 import { useReportViewedSession } from '@/modules/project-workspace/hooks/useReportViewedSession';
-import type { IsSessionProcessing,ServerEvent } from '@/shared/types';
+import { useSplitPaneSelection } from '@/modules/project-workspace/hooks/useSplitPaneSelection';
+import { useSplitViewState } from '@/modules/project-workspace/hooks/useSplitViewState';
+import { SplitViewActionsProvider } from '@/shared/context/SplitViewActionsContext';
+import { useDeviceSettings } from '@/shared/hooks/useDeviceSettings';
+import type { IsSessionProcessing, Project, ProjectSession, ServerEvent, SplitPaneTarget } from '@/shared/types';
 
 type ProjectsState = ReturnType<typeof useProjectsState>;
+type SplitViewState = ReturnType<typeof useSplitViewState>;
+
+/** Tailwind's `lg`. Split view only shows at or above this width. */
+const SPLIT_VIEW_MIN_WIDTH = 1024;
+
+type ProjectSplitViewState = Pick<
+  SplitViewState,
+  | 'isSplitAvailable'
+  | 'isSplitActive'
+  | 'focusedPane'
+  | 'dividerRatio'
+  | 'secondaryNewSessionTrigger'
+  | 'closeSplit'
+  | 'focusPane'
+  | 'setDividerRatio'
+  | 'showInSecondary'
+> & {
+  /** The right pane's resolved project and session (null session = new chat). */
+  secondaryProject: Project | null;
+  secondarySession: ProjectSession | null;
+  isSecondaryResolving: boolean;
+  /** The header's split button: opens the right pane on a new chat, or closes it. */
+  toggleSplit: () => void;
+};
 
 type ProjectSidebarState = Pick<
   ProjectsState,
@@ -36,7 +64,7 @@ type ProjectCommandState = Pick<
 
 type ProjectEffectsState = Pick<
   ProjectsState,
-  'openSettings' | 'refreshProjectsSilently' | 'setActiveTab' | 'setSidebarOpen'
+  'projects' | 'registerOptimisticSession' | 'openSettings' | 'refreshProjectsSilently' | 'setActiveTab' | 'setSidebarOpen'
 >;
 
 type ProjectActiveSessionState = {
@@ -57,6 +85,7 @@ const ProjectMainContext = createContext<ProjectMainState | null>(null);
 const ProjectCommandContext = createContext<ProjectCommandState | null>(null);
 const ProjectEffectsContext = createContext<ProjectEffectsState | null>(null);
 const ProjectActiveSessionContext = createContext<ProjectActiveSessionState | null>(null);
+const ProjectSplitViewContext = createContext<ProjectSplitViewState | null>(null);
 
 /** Rendered by ProjectWorkspaceRoute to own the workspace's project and session state and expose it through this module's context hooks. */
 export function ProjectsStateProvider({
@@ -74,15 +103,142 @@ export function ProjectsStateProvider({
     isMobile,
     isSessionProcessing,
   });
-  useReportViewedSession(state.selectedSession?.id ?? sessionId ?? null);
+  const { isMobile: isBelowSplitWidth } = useDeviceSettings({
+    mobileBreakpoint: SPLIT_VIEW_MIN_WIDTH,
+    trackPWA: false,
+  });
+
+  // The URL wins over the selection: the selection catches up one effect
+  // later, and split view must not see the old session in the left pane for
+  // that render.
+  const primarySessionId = sessionId ?? state.selectedSession?.id ?? null;
+  const primaryProjectId = state.selectedProject?.projectId ?? null;
+  const primaryTarget = useMemo<SplitPaneTarget>(
+    () => ({ sessionId: primarySessionId, projectId: primaryProjectId }),
+    [primaryProjectId, primarySessionId],
+  );
+
+  const { projects, handleNewSession, handleSessionSelect, handleSessionDelete, setActiveTab } = state;
+
+  const handlePrimaryTakeover = useCallback((target: SplitPaneTarget) => {
+    if (target.sessionId) {
+      navigate(`/session/${target.sessionId}`);
+      return;
+    }
+    const project = projects.find((candidate) => candidate.projectId === target.projectId);
+    if (project) {
+      handleNewSession(project);
+    } else {
+      navigate('/');
+    }
+  }, [handleNewSession, navigate, projects]);
+
+  const split = useSplitViewState({
+    isWide: !isBelowSplitWidth,
+    primary: primaryTarget,
+    onPrimaryTakeover: handlePrimaryTakeover,
+  });
+  const secondarySelection = useSplitPaneSelection(projects, split.secondary, split.isSplitActive);
+
+  useReportViewedSession(
+    split.focusedPane === 'secondary'
+      ? split.secondary.sessionId
+      : state.selectedSession?.id ?? sessionId ?? null,
+  );
+
+  const { openSession, startNewSession, forgetSession, openSplit, closeSplit, isSplitActive } = split;
+
+  // Sidebar picks, new sessions and deletes go through split view, which sends
+  // them to the focused pane. Without a split they reach the left pane as before.
+  const routedSessionSelect = useCallback((session: ProjectSession) => {
+    openSession(
+      { sessionId: session.id, projectId: session.__projectId ?? null },
+      () => handleSessionSelect(session),
+    );
+  }, [handleSessionSelect, openSession]);
+
+  const routedNewSession = useCallback((project: Project) => {
+    startNewSession(project.projectId, () => handleNewSession(project));
+    setActiveTab('chat');
+  }, [handleNewSession, setActiveTab, startNewSession]);
+
+  const routedSessionDelete = useCallback((sessionIdToDelete: string) => {
+    forgetSession(sessionIdToDelete);
+    handleSessionDelete(sessionIdToDelete);
+  }, [forgetSession, handleSessionDelete]);
+
+  const focusedSession = split.focusedPane === 'secondary'
+    ? secondarySelection.session
+    : state.selectedSession;
+
+  const routedSidebarProps = useMemo(
+    () => ({
+      ...state.sidebarSharedProps,
+      // The sidebar highlights the session the user is working in.
+      selectedSession: focusedSession,
+      onSessionSelect: routedSessionSelect,
+      onNewSession: routedNewSession,
+      onSessionDelete: routedSessionDelete,
+    }),
+    [focusedSession, routedNewSession, routedSessionDelete, routedSessionSelect, state.sidebarSharedProps],
+  );
+
+  const toggleSplit = useCallback(() => {
+    if (isSplitActive) {
+      closeSplit();
+    } else {
+      openSplit();
+    }
+  }, [closeSplit, isSplitActive, openSplit]);
+
+  const splitViewActions = useMemo(() => ({
+    canOpenInSplitView: split.isSplitAvailable,
+    openInSplitView: (target: SplitPaneTarget) => {
+      openSplit(target);
+      setActiveTab('chat');
+    },
+  }), [openSplit, setActiveTab, split.isSplitAvailable]);
+
+  const splitViewState = useMemo<ProjectSplitViewState>(
+    () => ({
+      isSplitAvailable: split.isSplitAvailable,
+      isSplitActive: split.isSplitActive,
+      focusedPane: split.focusedPane,
+      dividerRatio: split.dividerRatio,
+      secondaryNewSessionTrigger: split.secondaryNewSessionTrigger,
+      closeSplit: split.closeSplit,
+      focusPane: split.focusPane,
+      setDividerRatio: split.setDividerRatio,
+      showInSecondary: split.showInSecondary,
+      secondaryProject: secondarySelection.project,
+      secondarySession: secondarySelection.session,
+      isSecondaryResolving: secondarySelection.isResolving,
+      toggleSplit,
+    }),
+    [
+      secondarySelection.isResolving,
+      secondarySelection.project,
+      secondarySelection.session,
+      split.closeSplit,
+      split.dividerRatio,
+      split.focusPane,
+      split.focusedPane,
+      split.isSplitActive,
+      split.isSplitAvailable,
+      split.secondaryNewSessionTrigger,
+      split.setDividerRatio,
+      split.showInSecondary,
+      toggleSplit,
+    ],
+  );
 
   const sidebarState = useMemo<ProjectSidebarState>(
     () => ({
       sidebarOpen: state.sidebarOpen,
       setSidebarOpen: state.setSidebarOpen,
-      sidebarSharedProps: state.sidebarSharedProps,
+      sidebarSharedProps: routedSidebarProps,
     }),
-    [state.sidebarOpen, state.setSidebarOpen, state.sidebarSharedProps],
+    [state.sidebarOpen, state.setSidebarOpen, routedSidebarProps],
   );
 
   const mainState = useMemo<ProjectMainState>(
@@ -128,12 +284,16 @@ export function ProjectsStateProvider({
 
   const effectsState = useMemo<ProjectEffectsState>(
     () => ({
+      projects: state.projects,
+      registerOptimisticSession: state.registerOptimisticSession,
       openSettings: state.openSettings,
       refreshProjectsSilently: state.refreshProjectsSilently,
       setActiveTab: state.setActiveTab,
       setSidebarOpen: state.setSidebarOpen,
     }),
     [
+      state.projects,
+      state.registerOptimisticSession,
       state.openSettings,
       state.refreshProjectsSilently,
       state.setActiveTab,
@@ -152,7 +312,11 @@ export function ProjectsStateProvider({
         <ProjectMainContext.Provider value={mainState}>
           <ProjectSidebarContext.Provider value={sidebarState}>
             <ProjectActiveSessionContext.Provider value={activeSessionState}>
-              {children}
+              <ProjectSplitViewContext.Provider value={splitViewState}>
+                <SplitViewActionsProvider value={splitViewActions}>
+                  {children}
+                </SplitViewActionsProvider>
+              </ProjectSplitViewContext.Provider>
             </ProjectActiveSessionContext.Provider>
           </ProjectSidebarContext.Provider>
         </ProjectMainContext.Provider>
@@ -189,4 +353,8 @@ export function useProjectActiveSessionState(): ProjectActiveSessionState {
     useContext(ProjectActiveSessionContext),
     'useProjectActiveSessionState',
   );
+}
+
+export function useProjectSplitViewState(): ProjectSplitViewState {
+  return useRequiredProjectContext(useContext(ProjectSplitViewContext), 'useProjectSplitViewState');
 }

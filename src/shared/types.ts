@@ -1,4 +1,3 @@
-import type { TFunction } from 'i18next';
 import type { CSSProperties } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 
@@ -356,6 +355,8 @@ export type ChatMessage = {
   isCompactSummary?: boolean;
   /** Set on the row that stands in for a compaction, so it is drawn as one. */
   compact?: CompactionInfo;
+  /** On a `voice` row, who it belongs to: what Jason said, what the voice said, or a note about a request to Claude. */
+  voiceRole?: VoiceTranscriptRole;
   /** The summary that compaction produced, folded into the row above rather than left loose. */
   compactSummary?: string;
   isSubagentContainer?: boolean;
@@ -665,11 +666,101 @@ type CommandModalKind = 'help' | 'models' | 'cost' | 'status';
 /** Lifecycle state of the composer's push-to-talk microphone: 'idle', 'recording' or 'transcribing'. */
 export type VoiceInputState = 'idle' | 'recording' | 'transcribing';
 
+/** Read/write access to the message box that live dictation types into: `read` is the current text, `write` replaces it, `submit` sends it. Provided by the chat composer state and consumed by useVoiceInput. */
+export type DictationBox = {
+  read: () => string;
+  write: (value: string) => void;
+  submit: () => void;
+};
+
 /** Immutable snapshot of the app-level text-to-speech player for one utterance — its play state plus any error message — read by components so read-aloud state survives re-renders and chat switches. */
 export type VoiceSnapshot = { state: VoicePlayState; error: string | null };
 
 /** Playback state of a text-to-speech utterance: 'idle', 'loading' or 'playing'. */
 export type VoicePlayState = 'idle' | 'loading' | 'playing';
+
+// ---------------------------
+
+//----------------- LIVE VOICE ------------
+
+/** Live voice mode of a session: 'off' keeps push-to-talk and read-aloud, 'gemini' is a speech-to-speech front model that sends audio to Google. Stored per session. An old stored 'private' row reads as 'off'. */
+export type VoiceMode = 'off' | 'gemini';
+
+/** Voice settings stored for one session: the live mode plus the Gemini voice preset name (null means the model's default voice). Read and written through the voice session routes. */
+export type SessionVoiceSettings = { mode: VoiceMode; geminiVoice: string | null };
+
+/** Availability and options of Gemini Live reported by the server. `configured` false means the option shows disabled with `reason`; `nonBlockingTools` says whether the front keeps chatting while Claude works. */
+export type GeminiLiveStatus = {
+  configured: boolean;
+  reason: string | null;
+  model: string;
+  nonBlockingTools: boolean;
+  voices: string[];
+  defaultVoice: string;
+};
+
+/** The hands-free conversation phase shown in the live voice bar: connecting, listening for the user, thinking (waiting for Claude or the model), speaking, or failed. */
+export type LiveVoicePhase = 'connecting' | 'listening' | 'thinking' | 'speaking' | 'error';
+
+/** Everything the live voice bar renders and the composer needs: the current phase, the mute flag, an error line, and the mode that produced them. */
+export type LiveVoiceSnapshot = {
+  phase: LiveVoicePhase;
+  muted: boolean;
+  error: string | null;
+};
+
+/** Sends a spoken request into a session as a `[voice]` message and resolves with Claude's reply text. Private live sends to the session on screen, Gemini Live to its voice session. Provided by the live voice provider to the live voice hooks. */
+export type SendVoiceToClaude = (request: string) => Promise<string>;
+
+/** One session as the sidebar knows it, flattened for the live voice. The workspace route builds a list of these from the projects it holds in memory. */
+export type VoiceSessionEntry = {
+  id: string;
+  /** The name the sidebar shows for the session. */
+  name: string;
+  projectName: string;
+  /** Which provider runs the session; a missing value means Claude. */
+  provider?: LLMProvider;
+};
+
+/** What the workspace route tells the live voice provider about the app: the sessions it lists, which are running, and how to navigate. Registered by the project-workspace module and read when a request is sent or the voice pill is clicked. */
+export type VoiceDirectory = {
+  sessions: VoiceSessionEntry[];
+  /** Ids of the sessions producing a response right now. */
+  busyIds: ReadonlySet<string>;
+  /** Navigates the screen to a session. */
+  openSession(sessionId: string): void;
+  /** Marks a session as processing so the sidebar reacts as soon as a request is sent into it. */
+  markSessionProcessing(sessionId: string): void;
+  /** Adds a session that was just created to the sidebar, the way a first message in a new chat does. */
+  establishSession(sessionId: string, context: SessionEstablishedContext): void;
+};
+
+/** The session on screen, registered by the chat interface. `sessionId` is null for a new chat that has no session yet. */
+export type VoiceTarget = {
+  sessionId: string | null;
+  sessionName: string | null;
+  projectName: string | null;
+  /** Submits text through the composer's own send path, so the message shows in the transcript at once. */
+  submitText(text: string): void;
+};
+
+/** Who an entry of a voice session's saved conversation belongs to: `user` is what Jason said, `gemini` what the voice model said, `tool` a one-line note about a request to Claude or its reply. */
+export type VoiceTranscriptRole = 'user' | 'gemini' | 'tool';
+
+/** One saved entry of a voice session. `id` is made by the browser so a retried write is stored once, and `at` (epoch ms) is when the entry started, which is what interleaves it with Claude's rows. */
+export type VoiceTranscriptEntry = {
+  id: string;
+  role: VoiceTranscriptRole;
+  text: string;
+  at: number;
+};
+
+/** The voice session a live Gemini conversation is attached to. `sessionId` is null for the moment between the click and the server handing out the id. Read by the status pill and the live voice hooks. */
+export type VoiceSessionInfo = {
+  sessionId: string | null;
+  name: string;
+  projectName: string | null;
+};
 
 // ---------------------------
 
@@ -1133,6 +1224,15 @@ export type ProjectWorkspaceShellProps = RealtimeProps & {
   navigate: NavigateFunction;
 };
 
+/** One of the two chat panes in split view: `primary` is the left pane and follows the URL, `secondary` is the right pane and lives in split-view state. */
+export type SplitPaneId = 'primary' | 'secondary';
+
+/** What a split-view chat pane shows: a session, or a new chat in `projectId` when `sessionId` is null. Passed between the split-view state, its panes and the sidebar's "Open in split view" action. */
+export type SplitPaneTarget = {
+  sessionId: string | null;
+  projectId: string | null;
+};
+
 // ---------------------------
 
 //----------------- PROVIDER AUTHENTICATION ------------
@@ -1282,68 +1382,76 @@ export type MobileTerminalSelectionManager = {
 
 //----------------- SIDEBAR ------------
 
-/** The complete project-list state and callback bundle the sidebar assembles once and threads down through its project list, project rows and session rows. */
 /**
- * What a session row needs to draw its state and act on the session, named once
- * so the two lists that render a row — Projects and Conversations — cannot fall
- * out of step, and so a call site passes one prop instead of nine.
- *
- * SidebarProjectListProps composes it rather than restating it; it was already
- * carrying every member.
+ * Which list the session pane is showing: the triaged sessions of the current
+ * scope, message-content search results across every project, or the archive.
  */
-export type SessionRowActions = {
-  /** The rename currently open anywhere in the sidebar, or null. */
-  activeRename: ActiveSidebarRename | null;
-  /** Sessions with a run in flight: they show a spinner and hide destructive actions. */
-  activeSessions: ReadonlySet<string>;
-  /**
-   * View state pushed live by the server since the lists loaded. A row takes
-   * the newer of this and the fields in its own payload.
-   */
-  sessionViewStates: ReadonlyMap<string, SessionViewState>;
-  onRenameDraftChange: (draft: string) => void;
-  onStartEditingSession: (projectId: string, sessionId: string, initialName: string) => void;
-  onCancelEditingSession: () => void;
-  onSaveEditingSession: (projectId: string, sessionId: string, summary: string, provider: LLMProvider) => void;
-  onDeleteSession: (sessionId: string, sessionTitle: string) => void;
-  /** Branches a session into an independent one. Rows hide it for providers that cannot. */
-  onForkSession?: (session: SessionWithProvider) => void;
+export type SessionPaneMode = 'sessions' | 'messages' | 'archive';
+
+/**
+ * The headings the session pane files sessions under, in display order: a
+ * finished reply nobody has read, a run in flight, then recency buckets.
+ */
+export type SessionTriageGroupKey = 'review' | 'running' | 'today' | 'week' | 'older';
+
+/**
+ * A session paired with its owning project and the state the session pane
+ * sorts and draws it by. Built by triageSessions; the rail and pane read it.
+ */
+export type TriagedSession = {
+  session: SessionWithProvider;
+  project: Project;
+  isRunning: boolean;
+  /** A reply finished after the session was last on screen anywhere. */
+  isUnread: boolean;
+  /** Last activity as epoch ms, 0 when unknown. */
+  lastActivityMs: number;
 };
 
-export type SidebarProjectListProps = SessionRowActions & {
-  projects: Project[];
-  filteredProjects: Project[];
-  selectedProject: Project | null;
-  selectedSession: ProjectSession | null;
-  isLoading: boolean;
-  loadingProgress: LoadingProgress | null;
-  isProjectExpanded: (projectId: string) => boolean;
-  initialSessionsLoaded: Set<string>;
-  currentTime: Date;
-  deletingProjects: Set<string>;
-  tasksEnabled: boolean;
-  mcpServerStatus: MCPServerStatus;
-  getProjectSessions: (project: Project) => SessionWithProvider[];
-  onLoadMoreSessions: (projectId: string) => void;
-  loadingMoreProjects: Set<string>;
-  isProjectStarred: (projectId: string) => boolean;
-  onToggleProject: (projectId: string) => void;
-  onProjectSelect: (project: Project) => void;
-  onToggleStarProject: (projectId: string) => void;
-  onStartEditingProject: (project: Project) => void;
-  onCancelEditingProject: () => void;
-  onSaveProjectName: (projectId: string, nextName: string) => void;
-  onDeleteProject: (project: Project) => void;
-  onSessionSelect: (session: SessionWithProvider, projectName: string) => void;
-  onNewSession: (project: Project) => void;
-  t: TFunction;
+/** One heading's worth of sessions in the session pane. */
+export type SessionTriageGroup = {
+  key: SessionTriageGroupKey;
+  sessions: TriagedSession[];
+};
+
+/**
+ * What a project's tile shows in place of its two-letter initials: an emoji,
+ * or one of the line icons in PROJECT_ICON_GLYPHS by name. Stored per project
+ * id in the synced `projectIcons` preference, so it follows the user across
+ * devices; a project with no entry keeps its initials.
+ */
+export type ProjectIcon =
+  | { kind: 'emoji'; emoji: string }
+  | { kind: 'glyph'; name: string };
+
+/**
+ * How a project's tile looks: the user's chosen icon and background colour,
+ * each null when the user has not picked one (initials, and a colour derived
+ * from the project id). `color` is a key of PROJECT_TILE_COLORS.
+ */
+export type ProjectAppearance = {
+  icon: ProjectIcon | null;
+  color: string | null;
+};
+
+/**
+ * The rail's two sections, favourites then the rest, each in the order the
+ * user dragged them into. A drag only reorders within one section: starring a
+ * project is what moves it to the other.
+ */
+export type RailSections = {
+  starred: Project[];
+  regular: Project[];
+};
+
+/** Running and unread session counts for one project, drawn on its rail tile. */
+export type ProjectActivitySummary = {
+  running: number;
+  unread: number;
 };
 
 /** The ordering applied to the project list, either alphabetically by name or by most recent activity, persisted alongside the user's appearance settings. */
 export type ProjectSortOrder = 'name' | 'date';
-
-/** Which list the sidebar is currently showing: projects, conversation search results, running sessions or archived items. */
-export type SidebarSearchMode = 'projects' | 'conversations' | 'running' | 'archived';
 
 /** A Project narrowed to the archived state so archived entries can be listed and restored without being mistaken for active projects. */
 export type ArchivedProjectListItem = Project & { isArchived: true };
@@ -1367,12 +1475,6 @@ export type ArchivedSessionListItem = {
   isProjectArchived: boolean;
 };
 
-/** The subset of archived-session fields needed to render a recent-conversations row and reopen the session it points at. */
-export type RecentConversationListItem = Partial<SessionViewState> & Pick<
-  ArchivedSessionListItem,
-  'sessionId' | 'provider' | 'projectId' | 'projectDisplayName' | 'sessionTitle' | 'lastActivity'
->;
-
 /**
  * The rename the sidebar currently has open, if any.
  *
@@ -1380,9 +1482,8 @@ export type RecentConversationListItem = Partial<SessionViewState> & Pick<
  * both be mid-rename, and rows can be handed a resolved `isEditing` instead of
  * the raw id — a keystroke then only invalidates the row being renamed.
  *
- * A session rename carries the project that owns it so SidebarProjectList can
- * decide in O(1) which project row the draft belongs to. Without it every row
- * has to be handed the whole value and a keystroke invalidates all of them.
+ * A session rename carries the project that owns it, since saving a session
+ * name is keyed by project.
  */
 export type ActiveSidebarRename =
   | { target: 'project'; id: string; draft: string }

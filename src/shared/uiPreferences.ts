@@ -15,6 +15,8 @@ export type UiPreferences = {
   sendByCtrlEnter: boolean;
   sidebarVisible: boolean;
   voiceEnabled: boolean;
+  /** Lays the sidebar's project tiles out two to a row instead of one. */
+  railTwoColumns: boolean;
 };
 
 export type UiPreferenceKey = keyof UiPreferences;
@@ -29,6 +31,7 @@ const DEFAULTS: UiPreferences = {
   sendByCtrlEnter: false,
   sidebarVisible: true,
   voiceEnabled: false,
+  railTwoColumns: false,
 };
 
 const PREFERENCE_KEYS = Object.keys(DEFAULTS) as UiPreferenceKey[];
