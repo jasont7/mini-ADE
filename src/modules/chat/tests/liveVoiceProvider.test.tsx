@@ -117,7 +117,7 @@ let controller!: LiveVoiceController;
 
 const SIDEBAR = [
   { id: 's1', name: 'Bikes', projectName: 'life' },
-  { id: 's2', name: 'Back pain', projectName: 'health' },
+  { id: 's2', name: 'Release notes', projectName: 'docs' },
 ];
 
 const PROJECT = { projectId: 'p1', displayName: 'life', fullPath: '/work/life' } as Project;
@@ -225,7 +225,7 @@ test('ask_claude goes to the voice session even when another session is on scree
   frame({ kind: 'complete', sessionId: 'voice-1', success: true });
   const runBefore = live.runIds.at(-1);
 
-  view.switchTo(chat('s2', 'Back pain', submitted, 'health'));
+  view.switchTo(chat('s2', 'Release notes', submitted, 'docs'));
   assert.equal(controller.running, true);
   assert.equal(live.runIds.at(-1), runBefore);
 
@@ -315,7 +315,7 @@ test('Gemini Live from its composer button attaches to the session on screen, ma
 
 test('a session with nothing said yet has no recap', async () => {
   const submitted: string[] = [];
-  mount(chat('s2', 'Back pain', submitted, 'health'));
+  mount(chat('s2', 'Release notes', submitted, 'docs'));
   act(() => controller.select('gemini'));
   assert.equal(await live.gemini!.getRecap(), null);
 });
@@ -353,7 +353,7 @@ test('a running session stays running, and is not reconnected, when another sess
   assert.equal(controller.running, true);
   const activeBefore = live.geminiActive.length;
 
-  view.switchTo(chat('s2', 'Back pain', submitted));
+  view.switchTo(chat('s2', 'Release notes', submitted));
   await waitFor(() => assert.equal(stored.s2 !== undefined, true));
   assert.equal(controller.running, true);
   assert.equal(controller.mode, 'gemini');
@@ -366,7 +366,7 @@ test('the voice survives the chat unmounting, such as on the Files or Shell tab'
   act(() => controller.select('gemini'));
   view.unmountChat();
   assert.equal(live.geminiActive.at(-1), true);
-  view.switchTo(chat('s2', 'Back pain', submitted));
+  view.switchTo(chat('s2', 'Release notes', submitted));
   assert.equal(controller.running, true);
 });
 
@@ -401,7 +401,7 @@ test('ending the voice from any session ends it everywhere and fails waiting req
   act(() => { waiting = live.gemini!.askClaude('draft'); });
   await waitFor(() => assert.equal(wsSends().length, 2));
   const outcome = assert.rejects(waiting, /voice session ended/);
-  view.switchTo(chat('s2', 'Back pain', submitted));
+  view.switchTo(chat('s2', 'Release notes', submitted));
   act(() => controller.stop());
   assert.equal(controller.running, false);
   await outcome;
